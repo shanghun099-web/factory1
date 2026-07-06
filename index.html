@@ -1,0 +1,579 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#15181D">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>말핀 — 음성 배송 지도</title>
+<style>
+:root{
+  --bg:#15181D; --panel:#1E232B; --panel2:#242B35; --line:#2C333E;
+  --text:#EDEFF3; --dim:#8A93A3;
+  --amber:#FFB020; --amber-deep:#C77F00;
+  --green:#3DD68C; --red:#FF6B6B; --blue:#5CA8FF;
+  --dock-h:96px;
+}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;overflow:hidden}
+body{
+  background:var(--bg); color:var(--text);
+  font-family:-apple-system,BlinkMacSystemFont,'Pretendard','Noto Sans KR','Malgun Gothic',sans-serif;
+  user-select:none;-webkit-user-select:none;
+}
+button{font-family:inherit;border:none;background:none;color:inherit;cursor:pointer}
+input,textarea{font-family:inherit}
+
+/* ── 지도 ── */
+#map{position:fixed;inset:0;background:#0E1116}
+
+/* ── 상단 상태바 ── */
+#topbar{
+  position:fixed;top:0;left:0;right:0;z-index:20;
+  padding:calc(env(safe-area-inset-top) + 10px) 12px 10px;
+  display:flex;align-items:center;gap:8px;
+  background:linear-gradient(to bottom, rgba(21,24,29,.92), rgba(21,24,29,0));
+  pointer-events:none;
+}
+#topbar > *{pointer-events:auto}
+.stat{
+  background:var(--panel);border:1px solid var(--line);border-radius:12px;
+  padding:8px 14px;display:flex;align-items:baseline;gap:6px;
+  box-shadow:0 4px 14px rgba(0,0,0,.35);
+}
+.stat b{font-size:20px;font-variant-numeric:tabular-nums}
+.stat span{font-size:12px;color:var(--dim)}
+.stat.pending b{color:var(--amber)}
+.stat.done b{color:var(--green)}
+#topbar .spacer{flex:1}
+.iconbtn{
+  width:44px;height:44px;border-radius:12px;
+  background:var(--panel);border:1px solid var(--line);
+  display:flex;align-items:center;justify-content:center;font-size:19px;
+  box-shadow:0 4px 14px rgba(0,0,0,.35);
+}
+.iconbtn:active{transform:scale(.94)}
+
+/* ── 하단 도크 ── */
+#dock{
+  position:fixed;left:0;right:0;bottom:0;z-index:20;
+  padding:10px 16px calc(env(safe-area-inset-bottom) + 14px);
+  display:flex;align-items:center;justify-content:space-between;gap:12px;
+  background:linear-gradient(to top, rgba(21,24,29,.95) 60%, rgba(21,24,29,0));
+}
+.dockbtn{
+  flex:1;height:52px;border-radius:14px;
+  background:var(--panel);border:1px solid var(--line);
+  font-size:14px;font-weight:600;color:var(--text);
+  display:flex;align-items:center;justify-content:center;gap:6px;
+  box-shadow:0 4px 14px rgba(0,0,0,.35);
+}
+.dockbtn:active{transform:scale(.96)}
+
+/* 시그니처: 마이크 버튼 */
+#micbtn{
+  width:76px;height:76px;min-width:76px;border-radius:50%;
+  background:radial-gradient(circle at 35% 30%, #FFC94D, var(--amber) 55%, var(--amber-deep));
+  color:#241800;font-size:30px;
+  display:flex;align-items:center;justify-content:center;
+  box-shadow:0 6px 22px rgba(255,176,32,.45), inset 0 -3px 6px rgba(0,0,0,.18);
+  position:relative;transition:transform .12s;
+}
+#micbtn:active{transform:scale(.93)}
+#micbtn.listening{background:radial-gradient(circle at 35% 30%, #FF8A8A, var(--red) 55%, #C23A3A);
+  box-shadow:0 6px 22px rgba(255,107,107,.5)}
+#micbtn.listening::before,#micbtn.listening::after{
+  content:"";position:absolute;inset:-6px;border-radius:50%;
+  border:2px solid rgba(255,107,107,.55);animation:pulse 1.4s ease-out infinite;
+}
+#micbtn.listening::after{animation-delay:.7s}
+@keyframes pulse{from{transform:scale(1);opacity:1}to{transform:scale(1.55);opacity:0}}
+@media (prefers-reduced-motion: reduce){#micbtn.listening::before,#micbtn.listening::after{animation:none}}
+
+/* 음성 인식 라이브 텍스트 */
+#transcript{
+  position:fixed;left:50%;bottom:calc(var(--dock-h) + env(safe-area-inset-bottom) + 26px);
+  transform:translateX(-50%);z-index:21;max-width:86vw;
+  background:var(--panel2);border:1px solid var(--line);border-radius:999px;
+  padding:10px 20px;font-size:16px;font-weight:600;
+  box-shadow:0 8px 24px rgba(0,0,0,.5);
+  display:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+#transcript.show{display:block}
+#transcript.hint{color:var(--dim);font-weight:400}
+
+/* ── 토스트 ── */
+#toast{
+  position:fixed;left:50%;top:calc(env(safe-area-inset-top) + 72px);
+  transform:translateX(-50%);z-index:60;max-width:86vw;
+  background:var(--panel2);border:1px solid var(--line);border-radius:12px;
+  padding:11px 18px;font-size:14px;font-weight:600;
+  box-shadow:0 8px 24px rgba(0,0,0,.5);display:none;text-align:center;
+}
+#toast.show{display:block}
+#toast.ok{border-color:rgba(61,214,140,.5)}
+#toast.err{border-color:rgba(255,107,107,.5)}
+
+/* ── 마커 ── */
+.pin{
+  width:34px;height:34px;border-radius:50% 50% 50% 4px;transform:rotate(-45deg);
+  background:var(--amber);border:2.5px solid #fff;
+  box-shadow:0 3px 8px rgba(0,0,0,.45);
+  display:flex;align-items:center;justify-content:center;
+}
+.pin b{transform:rotate(45deg);color:#241800;font-size:14px;font-weight:800;font-variant-numeric:tabular-nums}
+.pin.done{background:var(--green);opacity:.82}
+.pin.done b{color:#0B2418}
+.pin.sel{outline:3px solid rgba(92,168,255,.9);outline-offset:2px}
+
+/* ── 시트 공통 ── */
+.sheet{
+  position:fixed;left:0;right:0;bottom:0;z-index:40;
+  background:var(--panel);border-radius:20px 20px 0 0;border-top:1px solid var(--line);
+  box-shadow:0 -10px 40px rgba(0,0,0,.55);
+  transform:translateY(105%);transition:transform .26s cubic-bezier(.3,.9,.3,1);
+  padding-bottom:env(safe-area-inset-bottom);
+}
+.sheet.open{transform:translateY(0)}
+.grip{width:40px;height:4px;border-radius:2px;background:var(--line);margin:10px auto 4px}
+.sheet-head{display:flex;align-items:center;justify-content:space-between;padding:8px 18px 4px}
+.sheet-head h2{font-size:16px}
+.sheet-head .sub{font-size:12px;color:var(--dim)}
+
+/* 상세 카드 */
+#detail .body{padding:6px 18px 18px}
+#detail .addr{font-size:17px;font-weight:700;line-height:1.45;margin-bottom:4px;user-select:text;-webkit-user-select:text}
+#detail .meta{font-size:12px;color:var(--dim);margin-bottom:12px}
+#detail textarea{
+  width:100%;background:var(--bg);border:1px solid var(--line);border-radius:10px;
+  color:var(--text);font-size:14px;padding:10px 12px;resize:none;height:64px;margin-bottom:12px;
+}
+#detail .row{display:flex;gap:8px}
+.act{
+  flex:1;height:50px;border-radius:12px;font-size:15px;font-weight:700;
+  display:flex;align-items:center;justify-content:center;gap:6px;
+  border:1px solid var(--line);background:var(--panel2);
+}
+.act:active{transform:scale(.96)}
+.act.primary{background:var(--green);color:#0B2418;border-color:transparent}
+.act.primary.undone{background:var(--panel2);color:var(--green);border-color:rgba(61,214,140,.45)}
+.act.nav{color:var(--blue)}
+.act.del{color:var(--red);flex:0 0 58px}
+
+/* 목록 시트 */
+#list .items{max-height:52vh;overflow-y:auto;padding:4px 10px 14px;overscroll-behavior:contain}
+.item{
+  display:flex;align-items:center;gap:12px;padding:13px 10px;
+  border-bottom:1px solid var(--line);border-radius:10px;
+}
+.item:active{background:var(--panel2)}
+.badge{
+  width:32px;height:32px;min-width:32px;border-radius:50%;
+  background:var(--amber);color:#241800;font-weight:800;font-size:14px;
+  display:flex;align-items:center;justify-content:center;font-variant-numeric:tabular-nums;
+}
+.item.done .badge{background:var(--green);color:#0B2418}
+.item .txt{flex:1;min-width:0}
+.item .a{font-size:14.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.item.done .a{color:var(--dim);text-decoration:line-through}
+.item .m{font-size:12px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.item .chk{font-size:20px;padding:6px}
+.empty{padding:36px 0;text-align:center;color:var(--dim);font-size:14px}
+#list .foot{display:flex;gap:8px;padding:8px 18px 16px}
+
+/* 직접 입력 시트 */
+#manual .body{padding:6px 18px 18px}
+#manual input{
+  width:100%;height:52px;background:var(--bg);border:1px solid var(--line);border-radius:12px;
+  color:var(--text);font-size:16px;padding:0 14px;margin-bottom:12px;
+}
+#manual input:focus{outline:none;border-color:var(--amber)}
+
+/* 설정 화면 */
+#setup{
+  position:fixed;inset:0;z-index:80;background:var(--bg);
+  display:flex;flex-direction:column;justify-content:center;
+  padding:28px;display:none;
+}
+#setup.show{display:flex}
+#setup .logo{font-size:44px;margin-bottom:10px}
+#setup h1{font-size:24px;margin-bottom:6px}
+#setup p{font-size:14px;color:var(--dim);line-height:1.6;margin-bottom:22px}
+#setup label{font-size:13px;color:var(--dim);display:block;margin-bottom:6px}
+#setup input{
+  width:100%;height:52px;background:var(--panel);border:1px solid var(--line);border-radius:12px;
+  color:var(--text);font-size:15px;padding:0 14px;margin-bottom:16px;
+}
+#setup input:focus{outline:none;border-color:var(--amber)}
+#setup .go{width:100%;height:54px;border-radius:14px;background:var(--amber);color:#241800;font-size:16px;font-weight:800}
+#setup .help{margin-top:16px;font-size:12.5px;color:var(--dim);line-height:1.7}
+#setup .help b{color:var(--text)}
+
+#dim{position:fixed;inset:0;z-index:35;background:rgba(0,0,0,.45);display:none}
+#dim.show{display:block}
+</style>
+</head>
+<body>
+
+<div id="map"></div>
+
+<div id="topbar">
+  <div class="stat pending"><b id="cntPending">0</b><span>대기</span></div>
+  <div class="stat done"><b id="cntDone">0</b><span>완료</span></div>
+  <div class="spacer"></div>
+  <button class="iconbtn" id="btnFit" title="전체 보기">🧭</button>
+  <button class="iconbtn" id="btnSetup" title="설정">⚙️</button>
+</div>
+
+<div id="transcript"></div>
+<div id="toast"></div>
+
+<div id="dock">
+  <button class="dockbtn" id="btnManual">⌨️ 직접 입력</button>
+  <button id="micbtn" title="음성으로 주소 추가">🎤</button>
+  <button class="dockbtn" id="btnList">📋 목록</button>
+</div>
+
+<div id="dim"></div>
+
+<!-- 상세 카드 -->
+<div class="sheet" id="detail">
+  <div class="grip"></div>
+  <div class="sheet-head"><h2 id="dTitle">배송지</h2><span class="sub" id="dSeq"></span></div>
+  <div class="body">
+    <div class="addr" id="dAddr"></div>
+    <div class="meta" id="dMeta"></div>
+    <textarea id="dMemo" placeholder="메모 (동·호수, 공동현관 코드, 문앞 등)"></textarea>
+    <div class="row">
+      <button class="act primary" id="dDone">✓ 배송완료</button>
+      <button class="act nav" id="dNav">🚚 길찾기</button>
+      <button class="act del" id="dDel">🗑</button>
+    </div>
+  </div>
+</div>
+
+<!-- 목록 시트 -->
+<div class="sheet" id="list">
+  <div class="grip"></div>
+  <div class="sheet-head"><h2>배송 목록</h2><span class="sub" id="lCount"></span></div>
+  <div class="items" id="lItems"></div>
+  <div class="foot">
+    <button class="act" id="lClearDone">완료건 정리</button>
+    <button class="act del" style="flex:1" id="lClearAll">전체 삭제</button>
+  </div>
+</div>
+
+<!-- 직접 입력 시트 -->
+<div class="sheet" id="manual">
+  <div class="grip"></div>
+  <div class="sheet-head"><h2>주소 직접 입력</h2></div>
+  <div class="body">
+    <input id="mInput" placeholder="예) 역삼동 123-45 / 테헤란로 152" enterkeyhint="done">
+    <div class="row"><button class="act primary" id="mAdd">지도에 추가</button></div>
+  </div>
+</div>
+
+<!-- 최초 설정 -->
+<div id="setup">
+  <div class="logo">📍</div>
+  <h1>말핀</h1>
+  <p>말하면 지도에 핀이 찍히는 배송 도우미.<br>시작하려면 카카오 JavaScript 키가 필요해요.</p>
+  <label>카카오 JavaScript 키</label>
+  <input id="sKey" placeholder="예) 1a2b3c4d5e6f..." autocomplete="off">
+  <button class="go" id="sGo">시작하기</button>
+  <div class="help">
+    <b>키 발급 방법</b><br>
+    1. developers.kakao.com → 내 애플리케이션 → 앱 추가<br>
+    2. 앱 키 중 <b>JavaScript 키</b> 복사<br>
+    3. 플랫폼 → Web → 이 앱을 올린 도메인 등록<br>
+    &nbsp;&nbsp;&nbsp;(예: https://아이디.github.io)<br>
+    4. 제품 설정 → <b>카카오맵 사용 설정 ON</b>
+  </div>
+</div>
+
+<script>
+/* ───────── 상태 ───────── */
+const LS_KEY='malpin.items', LS_API='malpin.apikey', LS_SEQ='malpin.seq';
+let items=[], seq=1, map=null, geocoder=null, places=null;
+let overlays={}; // id -> CustomOverlay
+let selectedId=null, listening=false, rec=null;
+
+const $=id=>document.getElementById(id);
+const save=()=>{localStorage.setItem(LS_KEY,JSON.stringify(items));localStorage.setItem(LS_SEQ,seq)};
+const load=()=>{
+  try{items=JSON.parse(localStorage.getItem(LS_KEY)||'[]')}catch(e){items=[]}
+  seq=parseInt(localStorage.getItem(LS_SEQ)||'1',10);
+};
+
+/* ───────── 토스트 ───────── */
+let toastT=null;
+function toast(msg,type=''){
+  const t=$('toast'); t.textContent=msg; t.className='show '+type;
+  clearTimeout(toastT); toastT=setTimeout(()=>t.className='',2600);
+}
+
+/* ───────── SDK 로드 ───────── */
+function boot(){
+  load();
+  const key=localStorage.getItem(LS_API);
+  if(!key){ $('setup').classList.add('show'); return; }
+  loadSDK(key);
+}
+function loadSDK(key){
+  const s=document.createElement('script');
+  s.src='https://dapi.kakao.com/v2/maps/sdk.js?appkey='+encodeURIComponent(key)+'&libraries=services&autoload=false';
+  s.onload=()=>kakao.maps.load(initMap);
+  s.onerror=()=>{
+    localStorage.removeItem(LS_API);
+    $('setup').classList.add('show');
+    toast('키 로드 실패 — 키와 도메인 등록을 확인해주세요','err');
+  };
+  document.head.appendChild(s);
+}
+$('sGo').onclick=()=>{
+  const k=$('sKey').value.trim();
+  if(!k){toast('키를 입력해주세요','err');return}
+  localStorage.setItem(LS_API,k);
+  $('setup').classList.remove('show');
+  loadSDK(k);
+};
+$('btnSetup').onclick=()=>{
+  if(confirm('API 키를 다시 설정할까요? (배송 데이터는 유지됩니다)')){
+    $('sKey').value=localStorage.getItem(LS_API)||'';
+    $('setup').classList.add('show');
+  }
+};
+
+/* ───────── 지도 ───────── */
+function initMap(){
+  map=new kakao.maps.Map($('map'),{
+    center:new kakao.maps.LatLng(37.4979,127.0276), // 강남역 기본
+    level:5
+  });
+  geocoder=new kakao.maps.services.Geocoder();
+  places=new kakao.maps.services.Places();
+  items.forEach(addOverlay);
+  updateCounts();
+  if(items.length) fitAll();
+  else if(navigator.geolocation){
+    navigator.geolocation.getCurrentPosition(p=>{
+      map.setCenter(new kakao.maps.LatLng(p.coords.latitude,p.coords.longitude));
+    },()=>{},{timeout:4000});
+  }
+}
+function addOverlay(it){
+  const el=document.createElement('div');
+  el.className='pin'+(it.done?' done':'');
+  el.innerHTML='<b>'+it.seq+'</b>';
+  el.onclick=e=>{e.stopPropagation();openDetail(it.id)};
+  const ov=new kakao.maps.CustomOverlay({
+    position:new kakao.maps.LatLng(it.lat,it.lng),
+    content:el, yAnchor:1, clickable:true
+  });
+  ov.setMap(map);
+  overlays[it.id]={ov,el};
+}
+function refreshPin(it){
+  const o=overlays[it.id]; if(!o)return;
+  o.el.className='pin'+(it.done?' done':'')+(it.id===selectedId?' sel':'');
+}
+function fitAll(){
+  if(!items.length){toast('등록된 배송지가 없어요');return}
+  const b=new kakao.maps.LatLngBounds();
+  items.forEach(i=>b.extend(new kakao.maps.LatLng(i.lat,i.lng)));
+  map.setBounds(b,60,30,120,30);
+}
+$('btnFit').onclick=fitAll;
+
+/* ───────── 주소 → 핀 ───────── */
+function addAddress(text){
+  text=text.trim();
+  if(!text)return;
+  if(!geocoder){toast('지도가 아직 준비 중이에요','err');return}
+  geocoder.addressSearch(text,(res,status)=>{
+    if(status===kakao.maps.services.Status.OK && res.length){
+      commit(text,res[0].address_name||text,parseFloat(res[0].y),parseFloat(res[0].x));
+    }else{
+      // 지번/도로명 실패 → 키워드(건물명·상호) 검색 폴백
+      places.keywordSearch(text,(r2,s2)=>{
+        if(s2===kakao.maps.services.Status.OK && r2.length){
+          commit(text,r2[0].place_name+' ('+(r2[0].road_address_name||r2[0].address_name)+')',parseFloat(r2[0].y),parseFloat(r2[0].x));
+        }else{
+          toast('"'+text+'" 위치를 못 찾았어요 — 직접 입력으로 수정해보세요','err');
+          openManual(text);
+        }
+      });
+    }
+  });
+}
+function commit(spoken,resolved,lat,lng){
+  const it={id:Date.now()+''+Math.random().toString(36).slice(2,6),
+    seq:seq++, addr:resolved, spoken, memo:'', lat, lng, done:false, ts:Date.now()};
+  items.push(it); save(); addOverlay(it); updateCounts();
+  map.panTo(new kakao.maps.LatLng(lat,lng));
+  toast('#'+it.seq+' 추가 — '+resolved,'ok');
+  if(navigator.vibrate)navigator.vibrate(40);
+}
+
+/* ───────── 음성 인식 ───────── */
+const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+$('micbtn').onclick=()=>{
+  if(!SR){toast('이 브라우저는 음성 인식을 지원하지 않아요 (크롬 권장)','err');return}
+  if(listening){rec.stop();return}
+  rec=new SR();
+  rec.lang='ko-KR'; rec.interimResults=true; rec.maxAlternatives=1;
+  let finalText='';
+  rec.onstart=()=>{
+    listening=true; $('micbtn').classList.add('listening');
+    const tr=$('transcript'); tr.textContent='주소를 말씀하세요…'; tr.className='show hint';
+  };
+  rec.onresult=e=>{
+    let interim='';
+    for(let i=e.resultIndex;i<e.results.length;i++){
+      if(e.results[i].isFinal) finalText+=e.results[i][0].transcript;
+      else interim+=e.results[i][0].transcript;
+    }
+    const tr=$('transcript');
+    tr.textContent=finalText||interim||'…'; tr.className='show';
+  };
+  rec.onerror=e=>{
+    if(e.error==='no-speech')toast('음성이 감지되지 않았어요','err');
+    else if(e.error==='not-allowed')toast('마이크 권한을 허용해주세요','err');
+    else toast('음성 인식 오류: '+e.error,'err');
+  };
+  rec.onend=()=>{
+    listening=false; $('micbtn').classList.remove('listening');
+    $('transcript').className='';
+    if(finalText.trim()) addAddress(normalize(finalText));
+  };
+  rec.start();
+};
+/* 음성 인식 결과 정리: "다시 45" → "123-45" 같은 붙임 처리 */
+function normalize(t){
+  return t.replace(/\s*다시\s*/g,'-')      // "123 다시 45" → "123-45"
+          .replace(/\s*의\s*(\d)/g,'-$1')  // "123의 4" → "123-4"
+          .replace(/(\d)\s+(\d)/g,'$1$2')  // 숫자 사이 공백 제거
+          .trim();
+}
+
+/* ───────── 시트 열기/닫기 ───────── */
+function openSheet(id){
+  closeSheets();
+  $('dim').classList.add('show');
+  $(id).classList.add('open');
+}
+function closeSheets(){
+  ['detail','list','manual'].forEach(i=>$(i).classList.remove('open'));
+  $('dim').classList.remove('show');
+  if(selectedId){const it=items.find(i=>i.id===selectedId);selectedId=null;if(it)refreshPin(it)}
+}
+$('dim').onclick=closeSheets;
+
+/* ───────── 상세 카드 ───────── */
+function openDetail(id){
+  const it=items.find(i=>i.id===id); if(!it)return;
+  selectedId=id; refreshPin(it);
+  $('dSeq').textContent='#'+it.seq;
+  $('dAddr').textContent=it.addr;
+  $('dMeta').textContent=(it.spoken&&it.spoken!==it.addr?'인식: "'+it.spoken+'" · ':'')+new Date(it.ts).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'})+' 등록';
+  $('dMemo').value=it.memo||'';
+  syncDoneBtn(it);
+  map.panTo(new kakao.maps.LatLng(it.lat,it.lng));
+  openSheet('detail');
+}
+function syncDoneBtn(it){
+  const b=$('dDone');
+  if(it.done){b.textContent='↩ 완료 취소';b.className='act primary undone'}
+  else{b.textContent='✓ 배송완료';b.className='act primary'}
+}
+$('dDone').onclick=()=>{
+  const it=items.find(i=>i.id===selectedId); if(!it)return;
+  it.done=!it.done; save(); refreshPin(it); updateCounts(); syncDoneBtn(it);
+  if(navigator.vibrate)navigator.vibrate(it.done?[30,40,30]:30);
+  if(it.done){toast('#'+it.seq+' 배송완료 ✓','ok');setTimeout(closeSheets,350)}
+};
+$('dMemo').onchange=()=>{
+  const it=items.find(i=>i.id===selectedId); if(!it)return;
+  it.memo=$('dMemo').value.trim(); save();
+};
+$('dNav').onclick=()=>{
+  const it=items.find(i=>i.id===selectedId); if(!it)return;
+  location.href='https://map.kakao.com/link/to/'+encodeURIComponent(it.addr)+','+it.lat+','+it.lng;
+};
+$('dDel').onclick=()=>{
+  const it=items.find(i=>i.id===selectedId); if(!it)return;
+  if(!confirm('#'+it.seq+' 배송지를 삭제할까요?'))return;
+  removeItem(it.id); closeSheets();
+};
+function removeItem(id){
+  const o=overlays[id]; if(o){o.ov.setMap(null);delete overlays[id]}
+  items=items.filter(i=>i.id!==id); save(); updateCounts();
+}
+
+/* ───────── 목록 ───────── */
+$('btnList').onclick=()=>{renderList();openSheet('list')};
+function renderList(){
+  const box=$('lItems'); box.innerHTML='';
+  const done=items.filter(i=>i.done).length;
+  $('lCount').textContent=items.length?done+' / '+items.length+' 완료':'';
+  if(!items.length){box.innerHTML='<div class="empty">🎤 마이크를 누르고 주소를 말해보세요</div>';return}
+  const sorted=[...items].sort((a,b)=>(a.done-b.done)||(a.seq-b.seq));
+  sorted.forEach(it=>{
+    const d=document.createElement('div');
+    d.className='item'+(it.done?' done':'');
+    d.innerHTML='<div class="badge">'+it.seq+'</div>'+
+      '<div class="txt"><div class="a"></div>'+(it.memo?'<div class="m"></div>':'')+'</div>'+
+      '<button class="chk">'+(it.done?'✅':'⬜')+'</button>';
+    d.querySelector('.a').textContent=it.addr;
+    if(it.memo)d.querySelector('.m').textContent='📝 '+it.memo;
+    d.querySelector('.txt').onclick=()=>{openDetail(it.id)};
+    d.querySelector('.badge').onclick=()=>{openDetail(it.id)};
+    d.querySelector('.chk').onclick=e=>{
+      e.stopPropagation();
+      it.done=!it.done; save(); refreshPin(it); updateCounts(); renderList();
+      if(navigator.vibrate)navigator.vibrate(30);
+    };
+    box.appendChild(d);
+  });
+}
+$('lClearDone').onclick=()=>{
+  const n=items.filter(i=>i.done).length;
+  if(!n){toast('완료된 건이 없어요');return}
+  if(!confirm('완료된 '+n+'건을 목록에서 정리할까요?'))return;
+  items.filter(i=>i.done).forEach(i=>{const o=overlays[i.id];if(o){o.ov.setMap(null);delete overlays[i.id]}});
+  items=items.filter(i=>!i.done); save(); updateCounts(); renderList();
+};
+$('lClearAll').onclick=()=>{
+  if(!items.length)return;
+  if(!confirm('전체 '+items.length+'건을 모두 삭제할까요?\n(새로운 하루 시작 시 사용)'))return;
+  Object.values(overlays).forEach(o=>o.ov.setMap(null));
+  overlays={}; items=[]; seq=1; save(); updateCounts(); renderList();
+  toast('초기화 완료 — 새 배송 시작!','ok');
+};
+
+/* ───────── 직접 입력 ───────── */
+$('btnManual').onclick=()=>openManual('');
+function openManual(preset){
+  $('mInput').value=preset||'';
+  openSheet('manual');
+  setTimeout(()=>$('mInput').focus(),280);
+}
+$('mAdd').onclick=submitManual;
+$('mInput').onkeydown=e=>{if(e.key==='Enter')submitManual()};
+function submitManual(){
+  const v=$('mInput').value.trim();
+  if(!v)return;
+  closeSheets(); addAddress(v);
+}
+
+/* ───────── 카운터 ───────── */
+function updateCounts(){
+  $('cntPending').textContent=items.filter(i=>!i.done).length;
+  $('cntDone').textContent=items.filter(i=>i.done).length;
+}
+
+boot();
+</script>
+</body>
+</html>
