@@ -81,6 +81,26 @@ input,textarea{font-family:inherit}
 #navchip.show{display:flex}
 #navchip b{color:var(--blue);font-variant-numeric:tabular-nums}
 
+/* ── 배송구역 그리기 ── */
+#zonebar{
+  position:fixed;left:50%;transform:translateX(-50%);
+  bottom:calc(var(--dock-h) + env(safe-area-inset-bottom) + 20px);z-index:22;
+  background:var(--panel);border:1px solid var(--amber);border-radius:14px;
+  padding:8px 10px;display:none;align-items:center;gap:6px;
+  box-shadow:0 8px 24px rgba(0,0,0,.5);
+}
+#zonebar.show{display:flex}
+#zonebar .cnt{font-size:13px;color:var(--dim);padding:0 6px;min-width:44px;text-align:center}
+#zonebar .zb{
+  height:40px;padding:0 13px;border-radius:10px;font-size:14px;font-weight:700;
+  background:var(--panel2);border:1px solid var(--line);color:var(--text);
+}
+#zonebar .zb:active{transform:scale(.95)}
+#zonebar .zb.save{background:var(--amber);color:#241800;border-color:transparent}
+#zonebar .zb.del{color:var(--red)}
+.zonedot{width:14px;height:14px;border-radius:50%;background:var(--amber);
+  border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.45)}
+
 /* ── 하단 도크 ── */
 #dock{
   position:fixed;left:0;right:0;bottom:0;z-index:20;
@@ -291,6 +311,18 @@ input,textarea{font-family:inherit}
     <button class="act" id="lClearDone">완료건 정리</button>
     <button class="act del" style="flex:1" id="lClearAll">전체 삭제</button>
   </div>
+  <div class="foot" style="padding-top:0">
+    <button class="act" id="lZone">🗺️ 배송구역 설정</button>
+  </div>
+</div>
+
+<!-- 구역 그리기 툴바 -->
+<div id="zonebar">
+  <span class="cnt" id="zCnt">0점</span>
+  <button class="zb" id="zUndo">↩ 취소</button>
+  <button class="zb save" id="zSave">✓ 저장</button>
+  <button class="zb del" id="zDel">🗑</button>
+  <button class="zb" id="zClose">✕</button>
 </div>
 
 <!-- 직접 입력 시트 -->
@@ -385,6 +417,7 @@ function initMap(){
   geocoder=new kakao.maps.services.Geocoder();
   places=new kakao.maps.services.Places();
   bindDragPause();
+  renderZone();
   items.forEach(addOverlay);
   updateCounts();
   if(items.length) fitAll();
@@ -444,7 +477,8 @@ function commit(spoken,resolved,lat,lng){
     seq:seq++, addr:resolved, spoken, memo:'', lat, lng, done:false, ts:Date.now()};
   items.push(it); save(); addOverlay(it); updateCounts();
   map.panTo(new kakao.maps.LatLng(lat,lng));
-  toast('#'+it.seq+' 추가 — '+resolved,'ok');
+  if(!inZone(lat,lng))toast('⚠️ #'+it.seq+' 배송구역 밖이에요 — 주소 확인!','err');
+  else toast('#'+it.seq+' 추가 — '+resolved,'ok');
   if(navigator.vibrate)navigator.vibrate(40);
 }
 
@@ -666,6 +700,85 @@ function updateNavchip(){
 }
 $('navchip').onclick=()=>{if(chipTarget)openDetail(chipTarget)};
 
+
+/* ───────── 배송구역 ───────── */
+const LS_ZONE='malpin.zone';
+let zone=null, zonePoly=null;
+let drawing=false, draft=[], draftDots=[], draftPoly=null, zoneClickL=null;
+try{zone=JSON.parse(localStorage.getItem(LS_ZONE)||'null')}catch(e){zone=null}
+
+function renderZone(){
+  if(zonePoly){zonePoly.setMap(null);zonePoly=null}
+  if(zone&&zone.length>=3){
+    zonePoly=new kakao.maps.Polygon({
+      path:zone.map(p=>new kakao.maps.LatLng(p[0],p[1])),
+      strokeWeight:2.5,strokeColor:'#FFB020',strokeOpacity:.9,strokeStyle:'shortdash',
+      fillColor:'#FFB020',fillOpacity:.08
+    });
+    zonePoly.setMap(map);
+  }
+}
+$('lZone').onclick=()=>{closeSheets();startDraw()};
+function startDraw(){
+  if(drawing)return;
+  drawing=true; draft=[];
+  $('zonebar').classList.add('show'); $('zCnt').textContent='0점';
+  zoneClickL=function(e){
+    draft.push([e.latLng.getLat(),e.latLng.getLng()]);
+    const el=document.createElement('div'); el.className='zonedot';
+    const d=new kakao.maps.CustomOverlay({position:e.latLng,content:el,yAnchor:.5});
+    d.setMap(map); draftDots.push(d);
+    redrawDraft();
+  };
+  kakao.maps.event.addListener(map,'click',zoneClickL);
+  toast('지도를 탭해서 구역 꼭짓점을 찍으세요 (3점 이상)');
+}
+function redrawDraft(){
+  $('zCnt').textContent=draft.length+'점';
+  if(draftPoly){draftPoly.setMap(null);draftPoly=null}
+  if(draft.length>=2){
+    draftPoly=new kakao.maps.Polygon({
+      path:draft.map(p=>new kakao.maps.LatLng(p[0],p[1])),
+      strokeWeight:2.5,strokeColor:'#FFB020',strokeOpacity:1,
+      fillColor:'#FFB020',fillOpacity:.15
+    });
+    draftPoly.setMap(map);
+  }
+}
+$('zUndo').onclick=()=>{
+  if(!draft.length)return;
+  draft.pop(); const d=draftDots.pop(); if(d)d.setMap(null);
+  redrawDraft();
+};
+$('zSave').onclick=()=>{
+  if(draft.length<3){toast('3점 이상 찍어야 구역이 돼요','err');return}
+  zone=draft.slice(); localStorage.setItem(LS_ZONE,JSON.stringify(zone));
+  renderZone(); exitDraw(); toast('배송구역 저장 완료','ok');
+};
+$('zDel').onclick=()=>{
+  if(!zone&&!draft.length){exitDraw();return}
+  if(!confirm('저장된 배송구역을 삭제할까요?'))return;
+  zone=null; localStorage.removeItem(LS_ZONE);
+  renderZone(); exitDraw(); toast('배송구역 삭제됨');
+};
+$('zClose').onclick=exitDraw;
+function exitDraw(){
+  drawing=false;
+  if(zoneClickL){kakao.maps.event.removeListener(map,'click',zoneClickL);zoneClickL=null}
+  draftDots.forEach(d=>d.setMap(null)); draftDots=[];
+  if(draftPoly){draftPoly.setMap(null);draftPoly=null}
+  draft=[]; $('zonebar').classList.remove('show');
+}
+/* 점이 구역 안에 있는지 (ray casting) */
+function inZone(lat,lng){
+  if(!zone||zone.length<3)return true;
+  let inside=false;
+  for(let i=0,j=zone.length-1;i<zone.length;j=i++){
+    const yi=zone[i][0],xi=zone[i][1],yj=zone[j][0],xj=zone[j][1];
+    if(((yi>lat)!==(yj>lat)) && (lng < (xj-xi)*(lat-yi)/(yj-yi)+xi)) inside=!inside;
+  }
+  return inside;
+}
 
 function updateCounts(){
   $('cntPending').textContent=items.filter(i=>!i.done).length;
