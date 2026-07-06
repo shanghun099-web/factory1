@@ -55,6 +55,27 @@ input,textarea{font-family:inherit}
   box-shadow:0 4px 14px rgba(0,0,0,.35);
 }
 .iconbtn:active{transform:scale(.94)}
+.iconbtn.on{border-color:var(--blue);color:var(--blue);box-shadow:0 0 0 2px rgba(92,168,255,.25)}
+
+/* 내 위치 파란 점 */
+.me{width:18px;height:18px;border-radius:50%;background:var(--blue);
+  border:3px solid #fff;box-shadow:0 0 0 2px rgba(92,168,255,.35),0 2px 8px rgba(0,0,0,.4);position:relative}
+.me::after{content:"";position:absolute;inset:-8px;border-radius:50%;
+  border:2px solid rgba(92,168,255,.5);animation:mepulse 2s ease-out infinite}
+@keyframes mepulse{from{transform:scale(.6);opacity:1}to{transform:scale(1.6);opacity:0}}
+@media (prefers-reduced-motion: reduce){.me::after{animation:none}}
+
+/* 가까운 배송지 거리 칩 */
+#navchip{
+  position:fixed;left:50%;transform:translateX(-50%);
+  top:calc(env(safe-area-inset-top) + 66px);z-index:19;
+  background:var(--panel);border:1px solid rgba(92,168,255,.45);border-radius:999px;
+  padding:8px 16px;font-size:14px;font-weight:700;
+  box-shadow:0 4px 14px rgba(0,0,0,.4);display:none;
+  align-items:center;gap:6px;white-space:nowrap;
+}
+#navchip.show{display:flex}
+#navchip b{color:var(--blue);font-variant-numeric:tabular-nums}
 
 /* ── 하단 도크 ── */
 #dock{
@@ -223,9 +244,12 @@ input,textarea{font-family:inherit}
   <div class="stat pending"><b id="cntPending">0</b><span>대기</span></div>
   <div class="stat done"><b id="cntDone">0</b><span>완료</span></div>
   <div class="spacer"></div>
+  <button class="iconbtn" id="btnLoc" title="내 위치 추적">📍</button>
   <button class="iconbtn" id="btnFit" title="전체 보기">🧭</button>
   <button class="iconbtn" id="btnSetup" title="설정">⚙️</button>
 </div>
+
+<div id="navchip"></div>
 
 <div id="transcript"></div>
 <div id="toast"></div>
@@ -356,6 +380,7 @@ function initMap(){
   map.addControl(new kakao.maps.ZoomControl(), kakao.maps.ControlPosition.RIGHT);
   geocoder=new kakao.maps.services.Geocoder();
   places=new kakao.maps.services.Places();
+  bindDragPause();
   items.forEach(addOverlay);
   updateCounts();
   if(items.length) fitAll();
@@ -570,10 +595,78 @@ function submitManual(){
   closeSheets(); addAddress(v);
 }
 
-/* ───────── 카운터 ───────── */
+/* ───────── 내 위치 추적 ───────── */
+let watchId=null, myOv=null, myPos=null, follow=true;
+
+$('btnLoc').onclick=()=>{
+  if(watchId!==null){
+    // 이미 추적 중 → 따라가기가 꺼져 있으면 다시 켜고, 켜져 있으면 추적 종료
+    if(!follow){follow=true;if(myPos)map.panTo(myPos);toast('내 위치 따라가기 켬');return}
+    stopTrack(); toast('위치 추적 종료'); return;
+  }
+  if(!navigator.geolocation){toast('이 기기는 위치를 지원하지 않아요','err');return}
+  watchId=navigator.geolocation.watchPosition(onPos,posErr,
+    {enableHighAccuracy:true,maximumAge:3000,timeout:15000});
+  $('btnLoc').classList.add('on'); follow=true;
+  toast('위치 추적 시작 — 파란 점이 내 위치예요','ok');
+};
+function stopTrack(){
+  if(watchId!==null){navigator.geolocation.clearWatch(watchId);watchId=null}
+  if(myOv){myOv.setMap(null);myOv=null}
+  myPos=null; $('btnLoc').classList.remove('on');
+  $('navchip').classList.remove('show');
+}
+function onPos(p){
+  myPos=new kakao.maps.LatLng(p.coords.latitude,p.coords.longitude);
+  if(!myOv){
+    const el=document.createElement('div'); el.className='me';
+    myOv=new kakao.maps.CustomOverlay({position:myPos,content:el,yAnchor:.5,zIndex:5});
+    myOv.setMap(map);
+  }else myOv.setPosition(myPos);
+  if(follow)map.panTo(myPos);
+  updateNavchip();
+}
+function posErr(e){
+  if(e.code===1)toast('위치 권한을 허용해주세요','err');
+  else if(e.code===3)return; // timeout은 조용히 재시도
+  else toast('위치를 가져오지 못했어요','err');
+  if(e.code===1)stopTrack();
+}
+/* 지도를 직접 움직이면 따라가기 일시 해제 (📍 다시 누르면 재개) */
+function bindDragPause(){
+  kakao.maps.event.addListener(map,'dragstart',()=>{follow=false});
+}
+/* 두 지점 거리(m) */
+function distM(a,b){
+  const R=6371000,rad=x=>x*Math.PI/180;
+  const dLat=rad(b.getLat()-a.getLat()),dLng=rad(b.getLng()-a.getLng());
+  const s=Math.sin(dLat/2)**2+Math.cos(rad(a.getLat()))*Math.cos(rad(b.getLat()))*Math.sin(dLng/2)**2;
+  return 2*R*Math.asin(Math.sqrt(s));
+}
+function fmtDist(m){return m<1000?Math.round(m)+'m':(m/1000).toFixed(1)+'km'}
+/* 가장 가까운 미배송지 표시 */
+let chipTarget=null;
+function updateNavchip(){
+  const chip=$('navchip');
+  if(!myPos){chip.classList.remove('show');return}
+  const pending=items.filter(i=>!i.done);
+  if(!pending.length){chip.classList.remove('show');chipTarget=null;return}
+  let best=null,bd=Infinity;
+  pending.forEach(i=>{
+    const d=distM(myPos,new kakao.maps.LatLng(i.lat,i.lng));
+    if(d<bd){bd=d;best=i}
+  });
+  chipTarget=best.id;
+  chip.innerHTML='🚚 가까운 배송지 <b>#'+best.seq+'</b>&nbsp;<b>'+fmtDist(bd)+'</b>';
+  chip.classList.add('show');
+}
+$('navchip').onclick=()=>{if(chipTarget)openDetail(chipTarget)};
+
+
 function updateCounts(){
   $('cntPending').textContent=items.filter(i=>!i.done).length;
   $('cntDone').textContent=items.filter(i=>i.done).length;
+  if(typeof updateNavchip==='function'&&myPos)updateNavchip();
 }
 
 boot();
