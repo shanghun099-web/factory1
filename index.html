@@ -82,23 +82,23 @@ input,textarea{font-family:inherit}
 #navchip b{color:var(--blue);font-variant-numeric:tabular-nums}
 
 /* ── 배송구역 그리기 ── */
-#zonebar{
+#zonebar,#pickbar{
   position:fixed;left:50%;transform:translateX(-50%);
   bottom:calc(var(--dock-h) + env(safe-area-inset-bottom) + 20px);z-index:22;
   background:var(--panel);border:1px solid var(--amber);border-radius:14px;
   padding:8px 10px;display:none;align-items:center;gap:6px;
   box-shadow:0 8px 24px rgba(0,0,0,.5);
 }
-#zonebar.show{display:flex}
+#zonebar.show,#pickbar.show{display:flex}
 #zonebar .cnt{font-size:13px;color:var(--dim);padding:0 6px;min-width:44px;text-align:center}
-#zonebar .zb{
+#zonebar .zb,#pickbar .zb{
   height:40px;padding:0 13px;border-radius:10px;font-size:14px;font-weight:700;
   background:var(--panel2);border:1px solid var(--line);color:var(--text);
   white-space:nowrap;
 }
-#zonebar .zb:active{transform:scale(.95)}
-#zonebar .zb.add{background:var(--panel2);color:var(--amber);border-color:rgba(255,176,32,.5)}
-#zonebar .zb.save{background:var(--amber);color:#241800;border-color:transparent}
+#zonebar .zb:active,#pickbar .zb:active{transform:scale(.95)}
+#zonebar .zb.add,#pickbar .zb.add{background:var(--panel2);color:var(--amber);border-color:rgba(255,176,32,.5)}
+#zonebar .zb.save,#pickbar .zb.save{background:var(--amber);color:#241800;border-color:transparent}
 #zonebar .zb.del{color:var(--red)}
 .zonedot{width:14px;height:14px;border-radius:50%;background:var(--amber);
   border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.45)}
@@ -340,6 +340,12 @@ input,textarea{font-family:inherit}
   <button class="zb" id="zClose">✕</button>
 </div>
 
+<!-- 지도 콕 찍기 툴바 -->
+<div id="pickbar">
+  <button class="zb add" id="pAdd">📦 이 위치에 배송지 추가</button>
+  <button class="zb" id="pClose">✕ 완료</button>
+</div>
+
 <!-- 직접 입력 시트 -->
 <div class="sheet" id="manual">
   <div class="grip"></div>
@@ -347,6 +353,7 @@ input,textarea{font-family:inherit}
   <div class="body">
     <input id="mInput" placeholder="예) 역삼동 123-45 / 테헤란로 152" enterkeyhint="done">
     <div class="row"><button class="act primary" id="mAdd">지도에 추가</button></div>
+    <div class="row" style="margin-top:8px"><button class="act" id="mPick">🎯 지도에서 콕 찍어 추가</button></div>
   </div>
 </div>
 
@@ -716,6 +723,35 @@ function updateNavchip(){
 $('navchip').onclick=()=>{if(chipTarget)openDetail(chipTarget)};
 
 
+/* ───────── 지도 콕 찍어 배송지 추가 ───────── */
+let picking=false;
+$('mPick').onclick=()=>{closeSheets();startPick()};
+function startPick(){
+  if(picking)return;
+  if(drawing)exitDraw();
+  picking=true;
+  $('pickbar').classList.add('show'); $('cross').classList.add('show');
+  toast('지도를 움직여 ＋를 배송지 건물에 맞추고 [추가]를 누르세요');
+}
+$('pAdd').onclick=()=>{
+  if(!geocoder)return;
+  const c=map.getCenter();
+  geocoder.coord2Address(c.getLng(),c.getLat(),(res,status)=>{
+    let addr='지도 지정 위치';
+    if(status===kakao.maps.services.Status.OK && res.length){
+      const r=res[0];
+      addr=(r.road_address&&r.road_address.address_name)
+        ||(r.address&&r.address.address_name)||addr;
+    }
+    commit('지도에서 지정',addr,c.getLat(),c.getLng());
+  });
+};
+$('pClose').onclick=endPick;
+function endPick(){
+  picking=false;
+  $('pickbar').classList.remove('show'); $('cross').classList.remove('show');
+}
+
 /* ───────── 배송구역 ───────── */
 const LS_ZONE='malpin.zone';
 let zone=null, zonePoly=null;
@@ -736,6 +772,7 @@ function renderZone(){
 $('lZone').onclick=()=>{closeSheets();startDraw()};
 function startDraw(){
   if(drawing)return;
+  if(picking)endPick();
   drawing=true; draft=[];
   $('zonebar').classList.add('show'); $('cross').classList.add('show');
   $('zCnt').textContent='0점';
