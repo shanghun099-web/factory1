@@ -16,7 +16,7 @@
   --dock-h:96px;
 }
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-html,body{height:100%;overflow:hidden}
+html,body{height:100%;overflow:hidden;overscroll-behavior:none}
 body{
   background:var(--bg); color:var(--text);
   font-family:-apple-system,BlinkMacSystemFont,'Pretendard','Noto Sans KR','Malgun Gothic',sans-serif;
@@ -26,7 +26,8 @@ button{font-family:inherit;border:none;background:none;color:inherit;cursor:poin
 input,textarea{font-family:inherit}
 
 /* ── 지도 ── */
-#map{position:fixed;inset:0;background:#0E1116}
+#map{position:fixed;inset:0;background:#0E1116;touch-action:none}
+#map *{touch-action:none}
 
 /* ── 상단 상태바 ── */
 #topbar{
@@ -349,8 +350,10 @@ $('btnSetup').onclick=()=>{
 function initMap(){
   map=new kakao.maps.Map($('map'),{
     center:new kakao.maps.LatLng(37.4979,127.0276), // 강남역 기본
-    level:5
+    level:5, draggable:true, scrollwheel:true
   });
+  map.setDraggable(true); map.setZoomable(true);
+  map.addControl(new kakao.maps.ZoomControl(), kakao.maps.ControlPosition.RIGHT);
   geocoder=new kakao.maps.services.Geocoder();
   places=new kakao.maps.services.Places();
   items.forEach(addOverlay);
