@@ -94,12 +94,25 @@ input,textarea{font-family:inherit}
 #zonebar .zb{
   height:40px;padding:0 13px;border-radius:10px;font-size:14px;font-weight:700;
   background:var(--panel2);border:1px solid var(--line);color:var(--text);
+  white-space:nowrap;
 }
 #zonebar .zb:active{transform:scale(.95)}
+#zonebar .zb.add{background:var(--panel2);color:var(--amber);border-color:rgba(255,176,32,.5)}
 #zonebar .zb.save{background:var(--amber);color:#241800;border-color:transparent}
 #zonebar .zb.del{color:var(--red)}
 .zonedot{width:14px;height:14px;border-radius:50%;background:var(--amber);
   border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.45)}
+
+/* 구역 그리기 조준점 */
+#cross{
+  position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:18;
+  width:44px;height:44px;pointer-events:none;display:none;
+}
+#cross.show{display:block}
+#cross::before,#cross::after{content:"";position:absolute;background:var(--amber);
+  box-shadow:0 0 0 1px rgba(0,0,0,.35)}
+#cross::before{left:50%;top:0;width:3px;height:100%;transform:translateX(-50%)}
+#cross::after{top:50%;left:0;height:3px;width:100%;transform:translateY(-50%)}
 
 /* ── 하단 도크 ── */
 #dock{
@@ -317,9 +330,11 @@ input,textarea{font-family:inherit}
 </div>
 
 <!-- 구역 그리기 툴바 -->
+<div id="cross"></div>
 <div id="zonebar">
   <span class="cnt" id="zCnt">0점</span>
-  <button class="zb" id="zUndo">↩ 취소</button>
+  <button class="zb add" id="zAdd">📍 점 추가</button>
+  <button class="zb" id="zUndo">↩</button>
   <button class="zb save" id="zSave">✓ 저장</button>
   <button class="zb del" id="zDel">🗑</button>
   <button class="zb" id="zClose">✕</button>
@@ -704,7 +719,7 @@ $('navchip').onclick=()=>{if(chipTarget)openDetail(chipTarget)};
 /* ───────── 배송구역 ───────── */
 const LS_ZONE='malpin.zone';
 let zone=null, zonePoly=null;
-let drawing=false, draft=[], draftDots=[], draftPoly=null, zoneClickL=null;
+let drawing=false, draft=[], draftDots=[], draftPoly=null;
 try{zone=JSON.parse(localStorage.getItem(LS_ZONE)||'null')}catch(e){zone=null}
 
 function renderZone(){
@@ -722,17 +737,20 @@ $('lZone').onclick=()=>{closeSheets();startDraw()};
 function startDraw(){
   if(drawing)return;
   drawing=true; draft=[];
-  $('zonebar').classList.add('show'); $('zCnt').textContent='0점';
-  zoneClickL=function(e){
-    draft.push([e.latLng.getLat(),e.latLng.getLng()]);
-    const el=document.createElement('div'); el.className='zonedot';
-    const d=new kakao.maps.CustomOverlay({position:e.latLng,content:el,yAnchor:.5});
-    d.setMap(map); draftDots.push(d);
-    redrawDraft();
-  };
-  kakao.maps.event.addListener(map,'click',zoneClickL);
-  toast('지도를 탭해서 구역 꼭짓점을 찍으세요 (3점 이상)');
+  $('zonebar').classList.add('show'); $('cross').classList.add('show');
+  $('zCnt').textContent='0점';
+  toast('지도를 움직여 ＋에 맞추고 [점 추가]를 누르세요 (3점 이상)');
 }
+function addZonePoint(){
+  const c=map.getCenter();
+  draft.push([c.getLat(),c.getLng()]);
+  const el=document.createElement('div'); el.className='zonedot';
+  const d=new kakao.maps.CustomOverlay({position:c,content:el,yAnchor:.5});
+  d.setMap(map); draftDots.push(d);
+  if(navigator.vibrate)navigator.vibrate(25);
+  redrawDraft();
+}
+$('zAdd').onclick=addZonePoint;
 function redrawDraft(){
   $('zCnt').textContent=draft.length+'점';
   if(draftPoly){draftPoly.setMap(null);draftPoly=null}
@@ -764,10 +782,11 @@ $('zDel').onclick=()=>{
 $('zClose').onclick=exitDraw;
 function exitDraw(){
   drawing=false;
-  if(zoneClickL){kakao.maps.event.removeListener(map,'click',zoneClickL);zoneClickL=null}
   draftDots.forEach(d=>d.setMap(null)); draftDots=[];
   if(draftPoly){draftPoly.setMap(null);draftPoly=null}
-  draft=[]; $('zonebar').classList.remove('show');
+  draft=[];
+  $('zonebar').classList.remove('show');
+  $('cross').classList.remove('show');
 }
 /* 점이 구역 안에 있는지 (ray casting) */
 function inZone(lat,lng){
