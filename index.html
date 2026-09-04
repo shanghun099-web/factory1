@@ -29,9 +29,24 @@ body{
 button{font-family:inherit;border:none;background:none;color:inherit;cursor:pointer}
 input,textarea{font-family:inherit}
 
-/* ── 지도 ── */
-#map{position:fixed;inset:0;background:#0E1116;touch-action:none}
+/* ── 지도 회전 래퍼 ── */
+/* #mapwrap 을 회전시켜 지도 타일 전체를 돌린다.
+   회전 시 모서리에 빈 배경이 보이지 않도록 화면보다 크게(scale) 잡는다. */
+#mapwrap{
+  position:fixed;left:50%;top:50%;
+  width:100%;height:100%;
+  transform:translate(-50%,-50%);
+  transform-origin:center center;
+  transition:transform .15s linear;
+}
+#mapwrap.rot{
+  width:170%;height:170%;   /* 회전해도 화면을 꽉 채우도록 확대 */
+}
+#map{position:absolute;inset:0;background:#0E1116;touch-action:none}
 #map *{touch-action:none}
+
+/* 회전 중일 때 핀 내용물을 역회전시켜 똑바로 세운다 */
+.pin{transition:transform .15s linear}
 
 /* ── 상단 상태바 ── */
 #topbar{
@@ -103,7 +118,7 @@ input,textarea{font-family:inherit}
 .zonedot{width:14px;height:14px;border-radius:50%;background:var(--amber);
   border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.45)}
 
-/* 구역 그리기 조준점 */
+/* 구역 그리기 조준점 (화면 고정 — 회전 영향 없음) */
 #cross{
   position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:18;
   width:44px;height:44px;pointer-events:none;display:none;
@@ -113,6 +128,14 @@ input,textarea{font-family:inherit}
   box-shadow:0 0 0 1px rgba(0,0,0,.35)}
 #cross::before{left:50%;top:0;width:3px;height:100%;transform:translateX(-50%)}
 #cross::after{top:50%;left:0;height:3px;width:100%;transform:translateY(-50%)}
+
+/* ── 방향 지시 화살표 (회전 모드 켰을 때 화면 중앙, 항상 위) ── */
+#heading-arrow{
+  position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:17;
+  pointer-events:none;display:none;
+}
+#heading-arrow.show{display:block}
+#heading-arrow svg{filter:drop-shadow(0 2px 6px rgba(0,0,0,.5))}
 
 /* ── 하단 도크 ── */
 #dock{
@@ -275,14 +298,23 @@ input,textarea{font-family:inherit}
 </head>
 <body>
 
-<div id="map"></div>
+<!-- 지도를 회전 래퍼로 감쌈 -->
+<div id="mapwrap"><div id="map"></div></div>
+
+<!-- 회전 모드일 때 화면 중앙에 뜨는 진행방향 화살표(항상 위쪽) -->
+<div id="heading-arrow">
+  <svg width="30" height="38" viewBox="0 0 30 38">
+    <path d="M15 0 L28 34 L15 26 L2 34 Z" fill="#5CA8FF" stroke="#fff" stroke-width="2" stroke-linejoin="round"/>
+  </svg>
+</div>
 
 <div id="topbar">
   <div class="stat pending"><b id="cntPending">0</b><span>대기</span></div>
   <div class="stat done"><b id="cntDone">0</b><span>완료</span></div>
   <div class="spacer"></div>
   <button class="iconbtn" id="btnLoc" title="내 위치 추적">📍</button>
-  <button class="iconbtn" id="btnFit" title="전체 보기">🧭</button>
+  <button class="iconbtn" id="btnRotate" title="방향 따라 회전">🧭</button>
+  <button class="iconbtn" id="btnFit" title="전체 보기">⛶</button>
   <button class="iconbtn" id="btnSetup" title="설정">⚙️</button>
 </div>
 
@@ -460,10 +492,12 @@ function addOverlay(it){
   });
   ov.setMap(map);
   overlays[it.id]={ov,el};
+  applyPinCounterRotate(el); // 회전 모드면 즉시 역회전 반영
 }
 function refreshPin(it){
   const o=overlays[it.id]; if(!o)return;
   o.el.className='pin'+(it.done?' done':'')+(it.id===selectedId?' sel':'');
+  applyPinCounterRotate(o.el);
 }
 function fitAll(){
   if(!items.length){toast('등록된 배송지가 없어요');return}
@@ -721,6 +755,108 @@ function updateNavchip(){
   chip.classList.add('show');
 }
 $('navchip').onclick=()=>{if(chipTarget)openDetail(chipTarget)};
+
+
+/* ═══════════ 나침반 방향 지도 회전 ═══════════ */
+/* 원리:
+   - 폰이 향한 방각(heading)만큼 지도 래퍼(#mapwrap)를 반대로 돌린다
+     → 내가 보는 방향이 항상 화면 위쪽으로 온다 (자동차 내비 방식)
+   - 지도를 돌리면 그 위의 핀들도 같이 기울므로, 핀은 heading만큼 다시 돌려 똑바로 세운다
+   - iOS(사파리)는 방향 센서 사용에 사용자 권한 요청이 필요하다
+*/
+let rotateOn=false;      // 회전 모드 on/off
+let curHeading=0;        // 현재 방각(도)
+let smoothHeading=0;     // 부드럽게 보정된 방각
+let orientHandler=null;
+
+function applyMapRotation(){
+  const wrap=$('mapwrap');
+  if(rotateOn){
+    // 지도 래퍼를 -heading 만큼 회전 (내 방향이 위로)
+    wrap.style.transform='translate(-50%,-50%) rotate('+(-smoothHeading)+'deg)';
+  }else{
+    wrap.style.transform='translate(-50%,-50%) rotate(0deg)';
+  }
+  applyAllPinsCounterRotate();
+}
+/* 개별 핀을 heading만큼 되돌려 세운다 (핀 기본 각도 -45deg 유지) */
+function applyPinCounterRotate(el){
+  if(!el)return;
+  const base=-45; // .pin 기본 회전
+  el.style.transform='rotate('+(base + (rotateOn? smoothHeading : 0))+'deg)';
+}
+function applyAllPinsCounterRotate(){
+  Object.values(overlays).forEach(o=>applyPinCounterRotate(o.el));
+}
+
+/* 방향 센서 값 처리 */
+function onOrient(e){
+  let h=null;
+  if(typeof e.webkitCompassHeading==='number'){
+    h=e.webkitCompassHeading;             // iOS: 이미 나침반 방각(북=0, 시계방향)
+  }else if(e.absolute && typeof e.alpha==='number'){
+    h=360-e.alpha;                         // Android absolute: alpha 반전
+  }else if(typeof e.alpha==='number'){
+    h=360-e.alpha;                         // 폴백
+  }
+  if(h===null||isNaN(h))return;
+  curHeading=(h+360)%360;
+}
+/* 부드럽게 회전 (각도 점프 최소화) */
+function headingLoop(){
+  if(rotateOn){
+    // 최단 경로로 보간
+    let diff=((curHeading - smoothHeading + 540)%360)-180;
+    smoothHeading=(smoothHeading + diff*0.18 + 360)%360;
+    applyMapRotation();
+  }
+  requestAnimationFrame(headingLoop);
+}
+
+function startRotate(){
+  const enable=()=>{
+    rotateOn=true;
+    $('btnRotate').classList.add('on');
+    $('mapwrap').classList.add('rot');
+    $('heading-arrow').classList.add('show');
+    orientHandler=onOrient;
+    // absolute 우선, 없으면 일반 orientation
+    window.addEventListener('deviceorientationabsolute',orientHandler,true);
+    window.addEventListener('deviceorientation',orientHandler,true);
+    toast('방향 회전 켬 — 폰이 향한 쪽이 화면 위로','ok');
+  };
+  // iOS 13+ 권한 요청
+  if(typeof DeviceOrientationEvent!=='undefined' &&
+     typeof DeviceOrientationEvent.requestPermission==='function'){
+    DeviceOrientationEvent.requestPermission().then(state=>{
+      if(state==='granted')enable();
+      else toast('방향 센서 권한이 거부됐어요','err');
+    }).catch(()=>toast('방향 센서를 사용할 수 없어요','err'));
+  }else if('DeviceOrientationEvent' in window){
+    enable();
+  }else{
+    toast('이 기기는 방향 센서를 지원하지 않아요','err');
+  }
+}
+function stopRotate(){
+  rotateOn=false;
+  $('btnRotate').classList.remove('on');
+  $('heading-arrow').classList.remove('show');
+  if(orientHandler){
+    window.removeEventListener('deviceorientationabsolute',orientHandler,true);
+    window.removeEventListener('deviceorientation',orientHandler,true);
+    orientHandler=null;
+  }
+  // 지도 원위치 (부드럽게 0으로)
+  smoothHeading=0; curHeading=0;
+  $('mapwrap').style.transform='translate(-50%,-50%) rotate(0deg)';
+  applyAllPinsCounterRotate();
+  // 확대 래퍼 해제는 회전이 0으로 돌아간 뒤
+  setTimeout(()=>{ if(!rotateOn)$('mapwrap').classList.remove('rot'); },200);
+  toast('방향 회전 끔 — 북쪽 고정');
+}
+$('btnRotate').onclick=()=>{ rotateOn? stopRotate() : startRotate(); };
+requestAnimationFrame(headingLoop);
 
 
 /* ───────── 지도 콕 찍어 배송지 추가 ───────── */
