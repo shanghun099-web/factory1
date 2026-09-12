@@ -555,7 +555,7 @@ function commit(spoken,resolved,lat,lng){
 /* 인식 엔진은 한 번 말한 주소도 "양재", "대로", "123" 처럼 여러 조각으로 끊어서 준다.
    조각이 올 때마다 등록하면 핀이 여러 개 찍히므로, 말이 VOICE_WAIT 동안 멈출 때까지
    조각을 모아 두고 한 건으로 합쳐서 등록한다. (다음 주소는 그만큼 쉬고 말하면 된다) */
-const VOICE_WAIT=1600;   // 말이 멈춘 뒤 등록까지 기다리는 시간(ms) — 늘리면 더 느긋해짐
+const VOICE_WAIT=2200;   // 말이 멈춘 뒤 등록까지 기다리는 시간(ms) — 늘리면 더 느긋해짐
 const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
 let voiceBuf='', voiceT=null;
 
