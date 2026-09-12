@@ -552,34 +552,50 @@ function commit(spoken,resolved,lat,lng){
 }
 
 /* ───────── 음성 인식 ───────── */
+/* 인식 엔진은 한 번 말한 주소도 "양재", "대로", "123" 처럼 여러 조각으로 끊어서 준다.
+   조각이 올 때마다 등록하면 핀이 여러 개 찍히므로, 말이 VOICE_WAIT 동안 멈출 때까지
+   조각을 모아 두고 한 건으로 합쳐서 등록한다. (다음 주소는 그만큼 쉬고 말하면 된다) */
+const VOICE_WAIT=1600;   // 말이 멈춘 뒤 등록까지 기다리는 시간(ms) — 늘리면 더 느긋해짐
 const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+let voiceBuf='', voiceT=null;
+
+function voiceHold(){                       // 말이 이어지는 동안 등록을 계속 미룬다
+  clearTimeout(voiceT);
+  voiceT=setTimeout(voiceFlush, VOICE_WAIT);
+}
+function voiceFlush(){                      // 모아둔 조각을 한 건으로 등록
+  clearTimeout(voiceT); voiceT=null;
+  const t=normalize(voiceBuf); voiceBuf='';
+  if(!t)return;
+  addAddress(t);
+  const tr=$('transcript');
+  if(listening){ tr.textContent='주소를 말씀하세요…'; tr.className='show hint'; }
+}
 $('micbtn').onclick=()=>{
   if(!SR){toast('이 브라우저는 음성 인식을 지원하지 않아요 (크롬 권장)','err');return}
   if(listening){rec.stop();return}
   rec=new SR();
   rec.lang='ko-KR'; rec.interimResults=true; rec.maxAlternatives=1;
   rec.continuous=true;          // 마이크를 켠 채 주소를 연달아 말할 수 있게
-  let addedUpTo=-1;             // 이미 지도에 찍은 결과 인덱스 (중복 추가 방지)
+  let addedUpTo=-1;             // 이미 모아둔 결과 인덱스 (중복 방지)
+  voiceBuf=''; clearTimeout(voiceT); voiceT=null;
   rec.onstart=()=>{
     listening=true; $('micbtn').classList.add('listening');
     const tr=$('transcript'); tr.textContent='주소를 말씀하세요…'; tr.className='show hint';
   };
-  /* 한 마디가 확정(isFinal)되는 즉시 지도에 핀을 찍는다 — 마이크를 끌 때까지 안 기다림 */
   rec.onresult=e=>{
-    let interim='', justAdded='';
+    let interim='';
     for(let i=e.resultIndex;i<e.results.length;i++){
       const r=e.results[i];
       if(r.isFinal){
-        if(i>addedUpTo){
-          addedUpTo=i;
-          const t=normalize(r[0].transcript);
-          if(t){ justAdded=t; addAddress(t); }
-        }
+        if(i>addedUpTo){ addedUpTo=i; voiceBuf+=(voiceBuf?' ':'')+r[0].transcript; }
       }else interim+=r[0].transcript;
     }
+    const shown=(voiceBuf+(interim?' '+interim:'')).trim();
     const tr=$('transcript');
-    tr.textContent=interim||justAdded||'주소를 말씀하세요…';
-    tr.className='show'+(interim||justAdded?'':' hint');
+    tr.textContent=shown||'주소를 말씀하세요…';
+    tr.className='show'+(shown?'':' hint');
+    voiceHold();                // 조각이 올 때마다 타이머 리셋 → 멈춘 뒤에만 등록
   };
   rec.onerror=e=>{
     if(e.error==='no-speech')toast('음성이 감지되지 않았어요','err');
@@ -589,6 +605,7 @@ $('micbtn').onclick=()=>{
   rec.onend=()=>{
     listening=false; $('micbtn').classList.remove('listening');
     $('transcript').className='';
+    voiceFlush();               // 마이크를 끄면 남은 조각 바로 등록
   };
   rec.start();
 };
