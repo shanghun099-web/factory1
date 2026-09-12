@@ -558,19 +558,28 @@ $('micbtn').onclick=()=>{
   if(listening){rec.stop();return}
   rec=new SR();
   rec.lang='ko-KR'; rec.interimResults=true; rec.maxAlternatives=1;
-  let finalText='';
+  rec.continuous=true;          // 마이크를 켠 채 주소를 연달아 말할 수 있게
+  let addedUpTo=-1;             // 이미 지도에 찍은 결과 인덱스 (중복 추가 방지)
   rec.onstart=()=>{
     listening=true; $('micbtn').classList.add('listening');
     const tr=$('transcript'); tr.textContent='주소를 말씀하세요…'; tr.className='show hint';
   };
+  /* 한 마디가 확정(isFinal)되는 즉시 지도에 핀을 찍는다 — 마이크를 끌 때까지 안 기다림 */
   rec.onresult=e=>{
-    let interim='';
+    let interim='', justAdded='';
     for(let i=e.resultIndex;i<e.results.length;i++){
-      if(e.results[i].isFinal) finalText+=e.results[i][0].transcript;
-      else interim+=e.results[i][0].transcript;
+      const r=e.results[i];
+      if(r.isFinal){
+        if(i>addedUpTo){
+          addedUpTo=i;
+          const t=normalize(r[0].transcript);
+          if(t){ justAdded=t; addAddress(t); }
+        }
+      }else interim+=r[0].transcript;
     }
     const tr=$('transcript');
-    tr.textContent=finalText||interim||'…'; tr.className='show';
+    tr.textContent=interim||justAdded||'주소를 말씀하세요…';
+    tr.className='show'+(interim||justAdded?'':' hint');
   };
   rec.onerror=e=>{
     if(e.error==='no-speech')toast('음성이 감지되지 않았어요','err');
@@ -580,7 +589,6 @@ $('micbtn').onclick=()=>{
   rec.onend=()=>{
     listening=false; $('micbtn').classList.remove('listening');
     $('transcript').className='';
-    if(finalText.trim()) addAddress(normalize(finalText));
   };
   rec.start();
 };
@@ -648,12 +656,16 @@ function removeItem(id){
 
 /* ───────── 목록 ───────── */
 $('btnList').onclick=()=>{renderList();openSheet('list')};
-function renderList(){
-  const box=$('lItems'); box.innerHTML='';
+function listCountLabel(){
   const done=items.filter(i=>i.done).length;
   $('lCount').textContent=items.length?done+' / '+items.length+' 완료':'';
+}
+function renderList(){
+  const box=$('lItems'); box.innerHTML='';
+  listCountLabel();
   if(!items.length){box.innerHTML='<div class="empty">🎤 마이크를 누르고 주소를 말해보세요</div>';return}
-  const sorted=[...items].sort((a,b)=>(a.done-b.done)||(a.seq-b.seq));
+  /* 번호 순서 고정 — 체크해도 줄이 움직이지 않게 (완료건을 아래로 내리면 옆칸을 잘못 누름) */
+  const sorted=[...items].sort((a,b)=>a.seq-b.seq);
   sorted.forEach(it=>{
     const d=document.createElement('div');
     d.className='item'+(it.done?' done':'');
@@ -666,7 +678,11 @@ function renderList(){
     d.querySelector('.badge').onclick=()=>{openDetail(it.id)};
     d.querySelector('.chk').onclick=e=>{
       e.stopPropagation();
-      it.done=!it.done; save(); refreshPin(it); updateCounts(); renderList();
+      it.done=!it.done; save(); refreshPin(it); updateCounts();
+      // 목록 전체를 다시 그리지 않고 누른 줄만 갱신 — 순서·스크롤 그대로
+      d.className='item'+(it.done?' done':'');
+      e.currentTarget.textContent=it.done?'✅':'⬜';
+      listCountLabel();
       if(navigator.vibrate)navigator.vibrate(30);
     };
     box.appendChild(d);
