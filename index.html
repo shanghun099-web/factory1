@@ -40,9 +40,11 @@ input,textarea{font-family:inherit}
   transition:transform .22s cubic-bezier(.4,0,.2,1);
 }
 #mapwrap.rot{ width:172%;height:172%; }  /* 회전 중 화면 꽉 채움 */
+#mapwrap.dragging{ transition:none; }     /* 손가락으로 돌리는 중엔 트랜지션 끔(끊김 방지) */
 #map{position:absolute;inset:0;background:#0E1116;touch-action:none}
 #map *{touch-action:none}
 .pin{transition:transform .22s cubic-bezier(.4,0,.2,1)}
+#mapwrap.dragging .pin{transition:none}
 
 /* ── 상단 상태바 ── */
 #topbar{
@@ -798,11 +800,14 @@ function applyPinCounterRotate(el){
 function applyAllPinsCounterRotate(){
   Object.values(overlays).forEach(o=>applyPinCounterRotate(o.el));
 }
+function normAngle(a){
+  a=a%360;
+  if(a>180)a-=360;
+  if(a<-180)a+=360;
+  return a;
+}
 function rotateBy(delta){
-  mapAngle+=delta;
-  // -180 ~ 180 범위로 정규화 (표시는 0~359로)
-  if(mapAngle>180)mapAngle-=360;
-  if(mapAngle<-180)mapAngle+=360;
+  mapAngle=normAngle(mapAngle+delta);
   applyMapRotation();
   if(navigator.vibrate)navigator.vibrate(15);
 }
@@ -815,6 +820,59 @@ function resetRotation(){
 $('btnRotR').onclick=()=>rotateBy(-ROT_STEP);
 $('btnRotL').onclick=()=>rotateBy(+ROT_STEP);
 $('angleBadge').onclick=resetRotation;
+
+
+/* ═══════════ 두 손가락으로 지도 돌리기 (자유 회전, -180°~180°) ═══════════ */
+/* 두 손가락을 지도에 얹고 비틀면 손가락이 만드는 선의 각도 변화만큼 지도가 돈다.
+   첫 움직임을 보고 "비틀기(회전)"인지 "벌리기(확대)"인지 한 번만 판정한다.
+   확대로 판정되면 이벤트를 그대로 흘려보내 카카오맵 핀치 줌이 살아 있게 한다. */
+const TWIST_DEG=8, PINCH_PX=26;
+let twistMode=null;   // null=판정 전, 'rot'=회전 중, 'zoom'=핀치에 양보
+let twistStart=0, twistBase=0, twistDist0=0;
+
+function touchPairAngle(t){
+  return Math.atan2(t[1].clientY-t[0].clientY, t[1].clientX-t[0].clientX)*180/Math.PI;
+}
+function touchPairDist(t){
+  return Math.hypot(t[1].clientX-t[0].clientX, t[1].clientY-t[0].clientY);
+}
+function twistBegin(e){
+  if(e.touches.length!==2){twistMode=null;return}
+  twistMode=null;                       // 아직 판정 전 — 카카오맵도 touchstart를 받게 둔다
+  twistStart=touchPairAngle(e.touches);
+  twistDist0=touchPairDist(e.touches);
+  twistBase=mapAngle;
+}
+function twistMove(e){
+  if(e.touches.length!==2 || twistMode==='zoom')return;
+  let d=normAngle(touchPairAngle(e.touches)-twistStart);
+  if(!twistMode){
+    if(Math.abs(d)>=TWIST_DEG){
+      twistMode='rot';
+      $('mapwrap').classList.add('dragging');
+    }else if(Math.abs(touchPairDist(e.touches)-twistDist0)>=PINCH_PX){
+      twistMode='zoom';                 // 확대/축소 제스처 — 카카오맵에 맡긴다
+      return;
+    }else return;
+  }
+  mapAngle=normAngle(twistBase+d);
+  applyMapRotation();
+  e.preventDefault(); e.stopImmediatePropagation();
+}
+function twistEnd(){
+  if(twistMode==='rot'){
+    $('mapwrap').classList.remove('dragging');
+    if(navigator.vibrate)navigator.vibrate(15);
+  }
+  twistMode=null;
+}
+{
+  const m=$('map');
+  m.addEventListener('touchstart',twistBegin,{passive:false,capture:true});
+  m.addEventListener('touchmove',twistMove,{passive:false,capture:true});
+  m.addEventListener('touchend',twistEnd,{capture:true});
+  m.addEventListener('touchcancel',twistEnd,{capture:true});
+}
 
 
 /* ───────── 지도 콕 찍어 배송지 추가 ───────── */
