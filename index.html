@@ -118,22 +118,26 @@ input,textarea{font-family:inherit}
 #navchip.show{display:flex}
 #navchip b{color:var(--blue);font-variant-numeric:tabular-nums}
 
-/* ── 지도 콕 찍기 툴바 ── */
-#pickbar{
+/* ── 지도 콕 찍기 / 촬영 누적 툴바 ── */
+#pickbar,#shotbar{
   position:fixed;left:50%;transform:translateX(-50%);
   bottom:calc(var(--dock-h) + env(safe-area-inset-bottom) + 20px);z-index:22;
   background:var(--panel);border:1px solid var(--amber);border-radius:14px;
   padding:8px 10px;display:none;align-items:center;gap:6px;
   box-shadow:0 8px 24px rgba(0,0,0,.5);
 }
-#pickbar.show{display:flex}
-#pickbar .zb{
+#pickbar.show,#shotbar.show{display:flex}
+#shotbar .cnt{font-size:13px;color:var(--dim);padding:0 6px;min-width:36px;text-align:center}
+#pickbar .zb,#shotbar .zb{
   height:40px;padding:0 13px;border-radius:10px;font-size:14px;font-weight:700;
   background:var(--panel2);border:1px solid var(--line);color:var(--text);
   white-space:nowrap;
 }
-#pickbar .zb:active{transform:scale(.95)}
-#pickbar .zb.add{background:var(--panel2);color:var(--amber);border-color:rgba(255,176,32,.5)}
+#pickbar .zb:active,#shotbar .zb:active{transform:scale(.95)}
+#pickbar .zb.add,#shotbar .zb.add{background:var(--panel2);color:var(--amber);border-color:rgba(255,176,32,.5)}
+#shotbar .zb.save{background:var(--amber);color:#241800;border-color:transparent}
+#photo .body{padding:6px 18px 18px}
+#photo .hint{margin-top:12px;font-size:12.5px;color:var(--dim);line-height:1.6}
 
 /* 콕 찍기 조준점 — 화면 중앙 고정(지도 회전 영향 없음). 얇은 링 + 중심점 + 바깥 눈금 */
 #cross{
@@ -248,7 +252,7 @@ input,textarea{font-family:inherit}
   width:100%;background:var(--bg);border:1px solid var(--line);border-radius:10px;
   color:var(--text);font-size:14px;padding:10px 12px;resize:none;height:64px;margin-bottom:12px;
 }
-#detail .row{display:flex;gap:8px}
+.sheet .row{display:flex;gap:8px}
 .act{
   flex:1;height:50px;border-radius:12px;font-size:15px;font-weight:700;
   display:flex;align-items:center;justify-content:center;gap:6px;
@@ -371,7 +375,15 @@ input,textarea{font-family:inherit}
   <button id="micbtn" title="음성으로 주소 추가">🎤</button>
   <button class="dockbtn" id="btnList">📋 목록</button>
 </div>
-<input type="file" id="photoIn" accept="image/*" multiple hidden>
+<!-- 사진: 촬영은 한 장씩 누적(최대 5장), 앨범은 여러 장 한 번에 -->
+<input type="file" id="photoCam" accept="image/*" capture="environment" hidden>
+<input type="file" id="photoLib" accept="image/*" multiple hidden>
+<div id="shotbar">
+  <span class="cnt" id="shotCnt">1장</span>
+  <button class="zb add" id="shotMore">📷 더 찍기</button>
+  <button class="zb save" id="shotGo">✓ 인식 시작</button>
+  <button class="zb" id="shotCancel">✕</button>
+</div>
 
 <div id="dim"></div>
 
@@ -431,6 +443,17 @@ input,textarea{font-family:inherit}
   <button class="zb" id="pClose">✕ 완료</button>
 </div>
 
+<!-- 사진 선택 시트 -->
+<div class="sheet" id="photo">
+  <div class="grip"></div>
+  <div class="sheet-head"><h2>송장 사진으로 추가</h2><span class="sub">한 번에 최대 5장</span></div>
+  <div class="body">
+    <div class="row"><button class="act primary" id="phCam">📷 카메라로 촬영</button></div>
+    <div class="row" style="margin-top:8px"><button class="act" id="phLib">🖼 앨범에서 선택</button></div>
+    <p class="hint">촬영 후 [더 찍기]로 이어서 찍을 수 있어요. 5장이 되면 자동으로 인식을 시작합니다.</p>
+  </div>
+</div>
+
 <!-- 직접 입력 시트 -->
 <div class="sheet" id="manual">
   <div class="grip"></div>
@@ -456,6 +479,9 @@ input,textarea{font-family:inherit}
     <button class="act" id="sEye">👁 키 보기</button>
     <button class="act" id="sPinSet">🔒 비밀번호 설정</button>
     <button class="act del" id="sPinOff" hidden>🔓 해제</button>
+  </div>
+  <div class="setuprow">
+    <button class="act" id="sGemTest">🤖 Gemini 연결 테스트</button>
   </div>
   <div class="help">
     <b>키 발급 방법</b><br>
@@ -686,7 +712,10 @@ function commit(spoken,resolved,lat,lng,memo){
    사진 여러 장을 한 번의 요청으로 보내 사진별 수취인 주소를 JSON으로 받는다.
    전송 전 긴 변 1280px JPEG 로 줄여 속도·비용을 아낀다. */
 const LS_GEM='malpin.gemini';
-const GEMINI_MODEL='gemini-3.5-flash';
+const LS_GEMMODEL='malpin.gemini.model';
+/* 앞에서부터 순서대로 시도 — 키에 그 모델 권한이 없거나(404) 이름이 바뀌면 다음 것으로 넘어가고,
+   한 번 성공한 모델은 기억해 두고 다음부터 바로 쓴다 */
+const GEMINI_MODELS=['gemini-3.6-flash','gemini-3.5-flash','gemini-2.5-flash'];
 const MAX_PHOTOS=5;
 const PHOTO_PROMPT=
   '당신은 택배 송장 판독기입니다. 첨부된 각 사진에서 "받는 분"(수취인) 주소를 찾아 JSON 배열로만 답하세요.\n'+
@@ -725,21 +754,48 @@ async function geminiAddresses(b64s){
         required:['index','address','detail']}}
     }
   };
-  const r=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+GEMINI_MODEL+':generateContent',{
-    method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':key},body:JSON.stringify(body)
-  });
-  if(!r.ok){
-    let msg='HTTP '+r.status;
-    try{const j=await r.json(); if(j.error&&j.error.message)msg=j.error.message}catch(e){}
-    if(r.status===400||r.status===403)msg='Gemini 키가 잘못됐거나 권한이 없어요 ('+msg+')';
-    if(r.status===429)msg='Gemini 사용량 한도 초과 — 잠시 후 다시 시도하세요';
-    throw new Error(msg);
-  }
-  const j=await r.json();
+  const j=await geminiCall(body);
   const cand=(j.candidates||[])[0];
   const txt=cand&&cand.content&&cand.content.parts?cand.content.parts.map(p=>p.text||'').join(''):'';
   try{return JSON.parse(txt)}catch(e){throw new Error('인식 결과를 해석하지 못했어요')}
 }
+/* 모델을 순서대로 시도해 첫 성공 응답을 돌려준다. 성공한 모델은 기억(LS_GEMMODEL) */
+async function geminiCall(body){
+  const key=localStorage.getItem(LS_GEM);
+  if(!key)throw new Error('Gemini API 키가 없어요');
+  const pref=localStorage.getItem(LS_GEMMODEL);
+  const order=pref?[pref].concat(GEMINI_MODELS.filter(m=>m!==pref)):GEMINI_MODELS.slice();
+  let last='';
+  for(const m of order){
+    let r;
+    try{
+      r=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+m+':generateContent',{
+        method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':key},body:JSON.stringify(body)
+      });
+    }catch(e){throw new Error('네트워크 오류 — 인터넷 연결을 확인하세요')}
+    if(r.ok){ localStorage.setItem(LS_GEMMODEL,m); return await r.json(); }
+    let msg='HTTP '+r.status;
+    try{const j=await r.json(); if(j.error&&j.error.message)msg=j.error.message}catch(e){}
+    const modelProblem = r.status===404 || (r.status===400 && /model|not found|not supported|unsupported/i.test(msg));
+    if(modelProblem){ last=m+' → '+msg; if(pref===m)localStorage.removeItem(LS_GEMMODEL); continue; }
+    if(r.status===400||r.status===403)throw new Error('Gemini 키가 잘못됐거나 권한이 없어요 ('+msg+')');
+    if(r.status===429)throw new Error('Gemini 사용량 한도 초과 — 잠시 후 다시 시도하세요');
+    throw new Error(msg);
+  }
+  throw new Error('쓸 수 있는 Gemini 모델이 없어요 ('+last+')');
+}
+/* 설정 화면의 연결 테스트 — 글자만 보내 어떤 모델이 되는지 / 왜 안 되는지 바로 보여준다 */
+$('sGemTest').onclick=async()=>{
+  const g=$('sGem').value.trim();
+  if(!g){toast('Gemini 키를 먼저 입력하세요','err');return}
+  localStorage.setItem(LS_GEM,g); localStorage.removeItem(LS_GEMMODEL);
+  const b=$('sGemTest'); b.disabled=true; b.textContent='⏳ 테스트 중…';
+  try{
+    await geminiCall({contents:[{role:'user',parts:[{text:'OK 라고만 답하세요'}]}],generationConfig:{maxOutputTokens:5}});
+    toast('✅ 연결 성공 — 모델: '+localStorage.getItem(LS_GEMMODEL),'ok');
+  }catch(e){ toast('❌ '+e.message,'err'); }
+  b.disabled=false; b.textContent='🤖 Gemini 연결 테스트';
+};
 let photoBusy=false;
 async function recognizePhotos(files){
   if(!geocoder){toast('지도가 아직 준비 중이에요','err');return}
@@ -772,17 +828,40 @@ async function recognizePhotos(files){
     photoBusy=false; tr.className='';
   }
 }
+const isImageFile=f=>/^image\//.test(f.type)||/\.(heic|heif|jpe?g|png|webp)$/i.test(f.name);
 $('btnPhoto').onclick=()=>{
   if(!localStorage.getItem(LS_GEM)){toast('⚙️ 설정에서 Gemini API 키를 먼저 넣어주세요','err');return}
   if(photoBusy){toast('사진 인식 중이에요…');return}
-  $('photoIn').value=''; $('photoIn').click();
+  openSheet('photo');
 };
-$('photoIn').onchange=e=>{
-  let files=[...e.target.files].filter(f=>/^image\//.test(f.type)||/\.(heic|heif|jpe?g|png|webp)$/i.test(f.name));
+/* 앨범: 여러 장 한 번에 */
+$('phLib').onclick=()=>{closeSheets(); $('photoLib').value=''; $('photoLib').click()};
+$('photoLib').onchange=e=>{
+  let files=[...e.target.files].filter(isImageFile);
   if(!files.length)return;
   if(files.length>MAX_PHOTOS){toast('한 번에 최대 '+MAX_PHOTOS+'장 — 앞의 '+MAX_PHOTOS+'장만 인식해요');files=files.slice(0,MAX_PHOTOS)}
   recognizePhotos(files);
 };
+/* 카메라: 한 장씩 찍어 모았다가 [인식 시작] 또는 5장 채우면 자동 인식 */
+let shots=[];
+$('phCam').onclick=()=>{closeSheets(); shots=[]; $('photoCam').value=''; $('photoCam').click()};
+$('photoCam').onchange=e=>{
+  const f=e.target.files[0];
+  if(!f||!isImageFile(f))return;
+  shots.push(f);
+  $('shotCnt').textContent=shots.length+'장';
+  $('shotbar').classList.add('show');
+  if(navigator.vibrate)navigator.vibrate(25);
+  if(shots.length>=MAX_PHOTOS){toast(MAX_PHOTOS+'장 모두 찍었어요 — 인식 시작');startShots()}
+};
+$('shotMore').onclick=()=>{$('photoCam').value=''; $('photoCam').click()};
+$('shotGo').onclick=startShots;
+$('shotCancel').onclick=()=>{shots=[]; $('shotbar').classList.remove('show')};
+function startShots(){
+  const files=shots.slice(); shots=[];
+  $('shotbar').classList.remove('show');
+  if(files.length)recognizePhotos(files);
+}
 
 /* ───────── 음성 인식 ───────── */
 /* 인식 엔진은 한 번 말한 주소도 "양재"/"대로"/"323" 처럼 조각으로 주고, 기기에 따라
@@ -891,7 +970,7 @@ function openSheet(id){
   $(id).classList.add('open');
 }
 function closeSheets(){
-  ['detail','list','manual'].forEach(i=>$(i).classList.remove('open'));
+  ['detail','list','manual','photo'].forEach(i=>$(i).classList.remove('open'));
   $('dim').classList.remove('show');
   if(selectedId){const it=items.find(i=>i.id===selectedId);selectedId=null;if(it)refreshPin(it)}
 }
