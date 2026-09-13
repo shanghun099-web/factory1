@@ -151,15 +151,15 @@ input,textarea{font-family:inherit}
 /* ── 하단 도크 ── */
 #dock{
   position:fixed;left:0;right:0;bottom:0;z-index:20;
-  padding:10px 16px calc(env(safe-area-inset-bottom) + 14px);
-  display:flex;align-items:center;justify-content:space-between;gap:12px;
+  padding:10px 12px calc(env(safe-area-inset-bottom) + 14px);
+  display:flex;align-items:center;justify-content:space-between;gap:8px;
   background:linear-gradient(to top, rgba(21,24,29,.95) 60%, rgba(21,24,29,0));
 }
 .dockbtn{
-  flex:1;height:52px;border-radius:14px;
+  flex:1;min-width:0;height:52px;border-radius:14px;padding:0 4px;
   background:var(--panel);border:1px solid var(--line);
-  font-size:14px;font-weight:600;color:var(--text);
-  display:flex;align-items:center;justify-content:center;gap:6px;
+  font-size:13.5px;font-weight:600;color:var(--text);white-space:nowrap;
+  display:flex;align-items:center;justify-content:center;gap:4px;
   box-shadow:0 4px 14px rgba(0,0,0,.35);
 }
 .dockbtn:active{transform:scale(.96)}
@@ -300,6 +300,7 @@ input,textarea{font-family:inherit}
 #setup h1{font-size:24px;margin-bottom:6px}
 #setup p{font-size:14px;color:var(--dim);line-height:1.6;margin-bottom:22px}
 #setup label{font-size:13px;color:var(--dim);display:block;margin-bottom:6px}
+#setup label .opt{font-size:12px;opacity:.8}
 #setup input{
   width:100%;height:52px;background:var(--panel);border:1px solid var(--line);border-radius:12px;
   color:var(--text);font-size:15px;padding:0 14px;margin-bottom:16px;
@@ -365,10 +366,12 @@ input,textarea{font-family:inherit}
 <div id="toast"></div>
 
 <div id="dock">
-  <button class="dockbtn" id="btnManual">⌨️ 직접 입력</button>
+  <button class="dockbtn" id="btnManual">⌨️ 입력</button>
+  <button class="dockbtn" id="btnPhoto" title="송장 사진으로 주소 추가">📷 사진</button>
   <button id="micbtn" title="음성으로 주소 추가">🎤</button>
   <button class="dockbtn" id="btnList">📋 목록</button>
 </div>
+<input type="file" id="photoIn" accept="image/*" multiple hidden>
 
 <div id="dim"></div>
 
@@ -446,6 +449,8 @@ input,textarea{font-family:inherit}
   <p>말하면 지도에 핀이 찍히는 배송 도우미.<br>시작하려면 카카오 JavaScript 키가 필요해요.</p>
   <label>카카오 JavaScript 키</label>
   <input id="sKey" placeholder="예) 1a2b3c4d5e6f..." autocomplete="off">
+  <label>Gemini API 키 <span class="opt">— 📷 사진으로 주소 인식용 (선택)</span></label>
+  <input id="sGem" placeholder="AIza… (안 쓰면 비워두세요)" autocomplete="off">
   <button class="go" id="sGo">시작하기</button>
   <div class="setuprow">
     <button class="act" id="sEye">👁 키 보기</button>
@@ -458,7 +463,11 @@ input,textarea{font-family:inherit}
     2. 앱 키 중 <b>JavaScript 키</b> 복사<br>
     3. 플랫폼 → Web → 이 앱을 올린 도메인 등록<br>
     &nbsp;&nbsp;&nbsp;(예: https://아이디.github.io)<br>
-    4. 제품 설정 → <b>카카오맵 사용 설정 ON</b>
+    4. 제품 설정 → <b>카카오맵 사용 설정 ON</b><br>
+    <br>
+    <b>📷 Gemini 키 (사진 인식)</b><br>
+    aistudio.google.com → <b>Get API key</b> → 키 만들기<br>
+    &nbsp;&nbsp;&nbsp;(이 키는 사용량이 과금될 수 있어요 — 공유 파일에 넣지 마세요)
   </div>
 </div>
 
@@ -506,9 +515,13 @@ function loadSDK(key){
 }
 $('sGo').onclick=()=>{
   const k=$('sKey').value.trim();
-  if(!k){toast('키를 입력해주세요','err');return}
+  if(!k){toast('카카오 키를 입력해주세요','err');return}
+  const g=$('sGem').value.trim();
+  if(g)localStorage.setItem(LS_GEM,g); else localStorage.removeItem(LS_GEM);
+  const same=map && k===localStorage.getItem(LS_API);
   localStorage.setItem(LS_API,k);
   $('setup').classList.remove('show');
+  if(same){toast('설정 저장됨','ok');return}   // 카카오 키 그대로면 지도를 다시 만들지 않는다
   loadSDK(k);
 };
 /* ───────── 설정 잠금 (비밀번호) ─────────
@@ -545,7 +558,8 @@ $('lockPw').onkeydown=e=>{ if(e.key==='Enter')$('lockOk').click() };
 
 function openSetup(){
   $('sKey').value=localStorage.getItem(LS_API)||'';
-  $('sKey').type='password';                  // 기본은 가려 두고 [👁 키 보기]로 확인
+  $('sGem').value=localStorage.getItem(LS_GEM)||'';
+  $('sKey').type='password'; $('sGem').type='password';   // 기본은 가려 두고 [👁 키 보기]로 확인
   $('sEye').textContent='👁 키 보기';
   const has=!!localStorage.getItem(LS_PIN);
   $('sPinSet').textContent=has?'🔒 비밀번호 변경':'🔒 비밀번호 설정';
@@ -562,9 +576,8 @@ $('btnSetup').onclick=()=>{
   });
 };
 $('sEye').onclick=()=>{
-  const k=$('sKey');
-  const show=k.type==='password';
-  k.type=show?'text':'password';
+  const show=$('sKey').type==='password';
+  $('sKey').type=$('sGem').type=show?'text':'password';
   $('sEye').textContent=show?'🙈 가리기':'👁 키 보기';
 };
 $('sPinSet').onclick=()=>{
@@ -634,34 +647,142 @@ function fitAll(){
 $('btnFit').onclick=fitAll;
 
 /* ───────── 주소 → 핀 ───────── */
-function addAddress(text){
+/* 주소 문자열 → 좌표. 지번/도로명 검색 실패 시 키워드(건물명·상호) 검색으로 폴백. 못 찾으면 null */
+function resolveAddress(text){
+  return new Promise(res=>{
+    if(!geocoder)return res(null);
+    const OK=kakao.maps.services.Status.OK;
+    geocoder.addressSearch(text,(r,s)=>{
+      if(s===OK && r.length)return res({name:r[0].address_name||text,lat:parseFloat(r[0].y),lng:parseFloat(r[0].x)});
+      places.keywordSearch(text,(r2,s2)=>{
+        if(s2===OK && r2.length)return res({name:r2[0].place_name+' ('+(r2[0].road_address_name||r2[0].address_name)+')',lat:parseFloat(r2[0].y),lng:parseFloat(r2[0].x)});
+        res(null);
+      });
+    });
+  });
+}
+async function addAddress(text){
   text=text.trim();
   if(!text)return;
   if(!geocoder){toast('지도가 아직 준비 중이에요','err');return}
-  geocoder.addressSearch(text,(res,status)=>{
-    if(status===kakao.maps.services.Status.OK && res.length){
-      commit(text,res[0].address_name||text,parseFloat(res[0].y),parseFloat(res[0].x));
-    }else{
-      // 지번/도로명 실패 → 키워드(건물명·상호) 검색 폴백
-      places.keywordSearch(text,(r2,s2)=>{
-        if(s2===kakao.maps.services.Status.OK && r2.length){
-          commit(text,r2[0].place_name+' ('+(r2[0].road_address_name||r2[0].address_name)+')',parseFloat(r2[0].y),parseFloat(r2[0].x));
-        }else{
-          toast('"'+text+'" 위치를 못 찾았어요 — 직접 입력으로 수정해보세요','err');
-          openManual(text);
-        }
-      });
-    }
-  });
+  const f=await resolveAddress(text);
+  if(f)commit(text,f.name,f.lat,f.lng);
+  else{
+    toast('"'+text+'" 위치를 못 찾았어요 — 직접 입력으로 수정해보세요','err');
+    openManual(text);
+  }
 }
-function commit(spoken,resolved,lat,lng){
+function commit(spoken,resolved,lat,lng,memo){
   const it={id:Date.now()+''+Math.random().toString(36).slice(2,6),
-    seq:seq++, addr:resolved, spoken, memo:'', lat, lng, done:false, ts:Date.now()};
+    seq:seq++, addr:resolved, spoken, memo:memo||'', lat, lng, done:false, ts:Date.now()};
   items.push(it); save(); addOverlay(it); updateCounts();
   map.panTo(new kakao.maps.LatLng(lat,lng));
   toast('#'+it.seq+' 추가 — '+resolved,'ok');
   if(navigator.vibrate)navigator.vibrate(40);
+  return it;
 }
+
+/* ───────── 사진(송장) → Gemini 주소 인식 → 핀 ─────────
+   사진 여러 장을 한 번의 요청으로 보내 사진별 수취인 주소를 JSON으로 받는다.
+   전송 전 긴 변 1280px JPEG 로 줄여 속도·비용을 아낀다. */
+const LS_GEM='malpin.gemini';
+const GEMINI_MODEL='gemini-3.5-flash';
+const MAX_PHOTOS=5;
+const PHOTO_PROMPT=
+  '당신은 택배 송장 판독기입니다. 첨부된 각 사진에서 "받는 분"(수취인) 주소를 찾아 JSON 배열로만 답하세요.\n'+
+  '- index: 사진 번호(1부터, 첨부 순서)\n'+
+  '- address: 도로명 주소 또는 지번 주소. 시/도 → 시/군/구 → 도로명(또는 동/리) → 건물번호(또는 지번)까지만. 동·호수·층 등 상세 위치와 우편번호는 넣지 마세요.\n'+
+  '- detail: 동·호수·층·공동현관 비밀번호 등 상세 위치. 없으면 빈 문자열.\n'+
+  '- 보내는 분(발송인) 주소는 무시하세요. 주소를 찾을 수 없으면 address를 빈 문자열로 두세요.\n'+
+  '- 사진마다 정확히 하나의 항목을, 사진 순서대로 만드세요.';
+
+function loadImg(file){
+  return new Promise((res,rej)=>{
+    const u=URL.createObjectURL(file); const im=new Image();
+    im.onload=()=>{URL.revokeObjectURL(u);res(im)};
+    im.onerror=()=>{URL.revokeObjectURL(u);rej(new Error('사진을 열 수 없어요'))};
+    im.src=u;
+  });
+}
+async function toJpegBase64(file,max=1280,q=.82){
+  const im=await loadImg(file);
+  const s=Math.min(1,max/Math.max(im.naturalWidth,im.naturalHeight));
+  const c=document.createElement('canvas');
+  c.width=Math.max(1,Math.round(im.naturalWidth*s)); c.height=Math.max(1,Math.round(im.naturalHeight*s));
+  c.getContext('2d').drawImage(im,0,0,c.width,c.height);
+  return c.toDataURL('image/jpeg',q).split(',')[1];
+}
+async function geminiAddresses(b64s){
+  const key=localStorage.getItem(LS_GEM);
+  const parts=[{text:PHOTO_PROMPT}];
+  b64s.forEach((b,i)=>{parts.push({text:'[사진 '+(i+1)+']'});parts.push({inline_data:{mime_type:'image/jpeg',data:b}})});
+  const body={
+    contents:[{role:'user',parts}],
+    generationConfig:{
+      temperature:0, responseMimeType:'application/json',
+      responseSchema:{type:'ARRAY',items:{type:'OBJECT',
+        properties:{index:{type:'INTEGER'},address:{type:'STRING'},detail:{type:'STRING'}},
+        required:['index','address','detail']}}
+    }
+  };
+  const r=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+GEMINI_MODEL+':generateContent',{
+    method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':key},body:JSON.stringify(body)
+  });
+  if(!r.ok){
+    let msg='HTTP '+r.status;
+    try{const j=await r.json(); if(j.error&&j.error.message)msg=j.error.message}catch(e){}
+    if(r.status===400||r.status===403)msg='Gemini 키가 잘못됐거나 권한이 없어요 ('+msg+')';
+    if(r.status===429)msg='Gemini 사용량 한도 초과 — 잠시 후 다시 시도하세요';
+    throw new Error(msg);
+  }
+  const j=await r.json();
+  const cand=(j.candidates||[])[0];
+  const txt=cand&&cand.content&&cand.content.parts?cand.content.parts.map(p=>p.text||'').join(''):'';
+  try{return JSON.parse(txt)}catch(e){throw new Error('인식 결과를 해석하지 못했어요')}
+}
+let photoBusy=false;
+async function recognizePhotos(files){
+  if(!geocoder){toast('지도가 아직 준비 중이에요','err');return}
+  photoBusy=true;
+  const tr=$('transcript');
+  tr.textContent='📷 사진 '+files.length+'장 준비 중…'; tr.className='show';
+  try{
+    const b64s=[];
+    for(const f of files)b64s.push(await toJpegBase64(f));
+    tr.textContent='🤖 주소 인식 중… ('+files.length+'장)';
+    const list=await geminiAddresses(b64s);
+    const arr=Array.isArray(list)?list:[];
+    let ok=0; const fail=[];
+    for(let i=0;i<files.length;i++){
+      const r=arr.find(x=>x&&x.index===i+1)||arr[i]||{};
+      const addr=typeof r.address==='string'?r.address.trim():'';
+      if(!addr){fail.push('사진 '+(i+1)+': 주소를 못 읽음');continue}
+      tr.textContent='📍 위치 찾는 중… ('+(i+1)+'/'+files.length+')';
+      const f=await resolveAddress(addr);
+      if(!f){fail.push('사진 '+(i+1)+': "'+addr+'" 위치 못 찾음');continue}
+      commit('📷 '+addr,f.name,f.lat,f.lng,typeof r.detail==='string'?r.detail.trim():'');
+      ok++;
+    }
+    if(ok>1)fitAll();
+    toast(ok+'건 추가'+(fail.length?' · '+fail.length+'건 실패':''),fail.length?'err':'ok');
+    if(fail.length)setTimeout(()=>toast(fail.join('  /  '),'err'),2700);
+  }catch(e){
+    toast('사진 인식 실패: '+e.message,'err');
+  }finally{
+    photoBusy=false; tr.className='';
+  }
+}
+$('btnPhoto').onclick=()=>{
+  if(!localStorage.getItem(LS_GEM)){toast('⚙️ 설정에서 Gemini API 키를 먼저 넣어주세요','err');return}
+  if(photoBusy){toast('사진 인식 중이에요…');return}
+  $('photoIn').value=''; $('photoIn').click();
+};
+$('photoIn').onchange=e=>{
+  let files=[...e.target.files].filter(f=>/^image\//.test(f.type)||/\.(heic|heif|jpe?g|png|webp)$/i.test(f.name));
+  if(!files.length)return;
+  if(files.length>MAX_PHOTOS){toast('한 번에 최대 '+MAX_PHOTOS+'장 — 앞의 '+MAX_PHOTOS+'장만 인식해요');files=files.slice(0,MAX_PHOTOS)}
+  recognizePhotos(files);
+};
 
 /* ───────── 음성 인식 ───────── */
 /* 인식 엔진은 한 번 말한 주소도 "양재"/"대로"/"323" 처럼 조각으로 주고, 기기에 따라
