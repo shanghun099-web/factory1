@@ -118,38 +118,35 @@ input,textarea{font-family:inherit}
 #navchip.show{display:flex}
 #navchip b{color:var(--blue);font-variant-numeric:tabular-nums}
 
-/* ── 배송구역 그리기 ── */
-#zonebar,#pickbar{
+/* ── 지도 콕 찍기 툴바 ── */
+#pickbar{
   position:fixed;left:50%;transform:translateX(-50%);
   bottom:calc(var(--dock-h) + env(safe-area-inset-bottom) + 20px);z-index:22;
   background:var(--panel);border:1px solid var(--amber);border-radius:14px;
   padding:8px 10px;display:none;align-items:center;gap:6px;
   box-shadow:0 8px 24px rgba(0,0,0,.5);
 }
-#zonebar.show,#pickbar.show{display:flex}
-#zonebar .cnt{font-size:13px;color:var(--dim);padding:0 6px;min-width:44px;text-align:center}
-#zonebar .zb,#pickbar .zb{
+#pickbar.show{display:flex}
+#pickbar .zb{
   height:40px;padding:0 13px;border-radius:10px;font-size:14px;font-weight:700;
   background:var(--panel2);border:1px solid var(--line);color:var(--text);
   white-space:nowrap;
 }
-#zonebar .zb:active,#pickbar .zb:active{transform:scale(.95)}
-#zonebar .zb.add,#pickbar .zb.add{background:var(--panel2);color:var(--amber);border-color:rgba(255,176,32,.5)}
-#zonebar .zb.save,#pickbar .zb.save{background:var(--amber);color:#241800;border-color:transparent}
-#zonebar .zb.del{color:var(--red)}
-.zonedot{width:14px;height:14px;border-radius:50%;background:var(--amber);
-  border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.45)}
+#pickbar .zb:active{transform:scale(.95)}
+#pickbar .zb.add{background:var(--panel2);color:var(--amber);border-color:rgba(255,176,32,.5)}
 
-/* 구역 그리기 조준점 (화면 고정 — 회전 영향 없음) */
+/* 콕 찍기 조준점 — 화면 중앙 고정(지도 회전 영향 없음). 얇은 링 + 중심점 + 바깥 눈금 */
 #cross{
   position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:18;
-  width:44px;height:44px;pointer-events:none;display:none;
+  width:64px;height:64px;pointer-events:none;display:none;
 }
 #cross.show{display:block}
-#cross::before,#cross::after{content:"";position:absolute;background:var(--amber);
-  box-shadow:0 0 0 1px rgba(0,0,0,.35)}
-#cross::before{left:50%;top:0;width:3px;height:100%;transform:translateX(-50%)}
-#cross::after{top:50%;left:0;height:3px;width:100%;transform:translateY(-50%)}
+#cross svg{width:100%;height:100%;overflow:visible;filter:drop-shadow(0 1px 3px rgba(0,0,0,.6))}
+#cross .ring,#cross .tick{fill:none;stroke:var(--amber);stroke-width:2;stroke-linecap:round}
+#cross .ring{stroke-opacity:.95;transform-origin:50% 50%;animation:breathe 2.2s ease-in-out infinite}
+#cross .dot{fill:var(--amber);stroke:#fff;stroke-width:1.5}
+@keyframes breathe{0%,100%{transform:scale(1)}50%{transform:scale(1.07)}}
+@media (prefers-reduced-motion: reduce){#cross .ring{animation:none}}
 
 /* ── 하단 도크 ── */
 #dock{
@@ -211,17 +208,23 @@ input,textarea{font-family:inherit}
 #toast.ok{border-color:rgba(61,214,140,.5)}
 #toast.err{border-color:rgba(255,107,107,.5)}
 
-/* ── 마커 ── */
+/* ── 마커: 갸름한 물방울형 핀 (SVG). 뾰족한 끝이 좌표에 닿는다 ── */
 .pin{
-  width:34px;height:34px;border-radius:50% 50% 50% 4px;transform:rotate(-45deg);
-  background:var(--amber);border:2.5px solid #fff;
-  box-shadow:0 3px 8px rgba(0,0,0,.45);
-  display:flex;align-items:center;justify-content:center;
+  position:relative;width:26px;height:40px;
+  transform-origin:50% 100%;             /* 회전 보정 시 끝점이 제자리 유지 */
+  filter:drop-shadow(0 3px 4px rgba(0,0,0,.45));
 }
-.pin b{transform:rotate(45deg);color:#241800;font-size:14px;font-weight:800;font-variant-numeric:tabular-nums}
-.pin.done{background:var(--green);opacity:.82}
+.pin svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible;display:block}
+.pin svg path{fill:var(--amber);stroke:#fff;stroke-width:2;stroke-linejoin:round}
+.pin b{
+  position:absolute;left:0;right:0;top:3px;height:20px;line-height:20px;text-align:center;
+  color:#241800;font-size:12px;font-weight:800;letter-spacing:-.02em;font-variant-numeric:tabular-nums;
+}
+.pin.done{opacity:.85}
+.pin.done svg path{fill:var(--green)}
 .pin.done b{color:#0B2418}
-.pin.sel{outline:3px solid rgba(92,168,255,.9);outline-offset:2px}
+.pin.sel svg path{stroke:var(--blue);stroke-width:3}
+.pin.sel{filter:drop-shadow(0 0 6px rgba(92,168,255,.9)) drop-shadow(0 3px 4px rgba(0,0,0,.45))}
 
 /* ── 시트 공통 ── */
 .sheet{
@@ -290,7 +293,7 @@ input,textarea{font-family:inherit}
 #setup{
   position:fixed;inset:0;z-index:80;background:var(--bg);
   display:flex;flex-direction:column;justify-content:center;
-  padding:28px;display:none;
+  padding:28px;display:none;overflow-y:auto;
 }
 #setup.show{display:flex}
 #setup .logo{font-size:44px;margin-bottom:10px}
@@ -308,6 +311,31 @@ input,textarea{font-family:inherit}
 
 #dim{position:fixed;inset:0;z-index:35;background:rgba(0,0,0,.45);display:none}
 #dim.show{display:block}
+
+/* ── 설정 잠금(비밀번호) ── */
+#setup .setuprow{display:flex;gap:8px;margin-top:12px}
+#setup .setuprow .act{height:46px;font-size:14px}
+#setup .setuprow .act[hidden]{display:none}   /* .act의 display:flex 가 [hidden]을 덮지 않게 */
+#lock{
+  position:fixed;inset:0;z-index:90;background:rgba(0,0,0,.62);
+  display:none;align-items:center;justify-content:center;padding:24px;
+}
+#lock.show{display:flex}
+#lock .box{
+  width:100%;max-width:340px;background:var(--panel);
+  border:1px solid var(--line);border-radius:18px;padding:20px;
+  box-shadow:0 20px 50px rgba(0,0,0,.6);
+}
+#lock h2{font-size:17px;margin-bottom:6px}
+#lock p{font-size:13px;color:var(--dim);line-height:1.5;margin-bottom:14px}
+#lock input{
+  width:100%;height:52px;background:var(--bg);border:1px solid var(--line);
+  border-radius:12px;color:var(--text);font-size:18px;letter-spacing:.12em;
+  padding:0 14px;margin-bottom:12px;text-align:center;
+}
+#lock input:focus{outline:none;border-color:var(--amber)}
+#lock .row{display:flex;gap:8px}
+#lock .help{margin-top:10px;font-size:12.5px;color:var(--red);text-align:center;min-height:16px}
 </style>
 </head>
 <body>
@@ -344,6 +372,20 @@ input,textarea{font-family:inherit}
 
 <div id="dim"></div>
 
+<!-- 설정 잠금 비밀번호 -->
+<div id="lock">
+  <div class="box">
+    <h2 id="lockTitle">설정 잠금</h2>
+    <p id="lockMsg">비밀번호를 입력하세요</p>
+    <input id="lockPw" type="password" inputmode="numeric" placeholder="••••" enterkeyhint="done" autocomplete="off">
+    <div class="row">
+      <button class="act" id="lockCancel">취소</button>
+      <button class="act primary" id="lockOk">확인</button>
+    </div>
+    <div class="help" id="lockHelp"></div>
+  </div>
+</div>
+
 <!-- 상세 카드 -->
 <div class="sheet" id="detail">
   <div class="grip"></div>
@@ -369,20 +411,15 @@ input,textarea{font-family:inherit}
     <button class="act" id="lClearDone">완료건 정리</button>
     <button class="act del" style="flex:1" id="lClearAll">전체 삭제</button>
   </div>
-  <div class="foot" style="padding-top:0">
-    <button class="act" id="lZone">🗺️ 배송구역 설정</button>
-  </div>
 </div>
 
-<!-- 구역 그리기 툴바 -->
-<div id="cross"></div>
-<div id="zonebar">
-  <span class="cnt" id="zCnt">0점</span>
-  <button class="zb add" id="zAdd">📍 점 추가</button>
-  <button class="zb" id="zUndo">↩</button>
-  <button class="zb save" id="zSave">✓ 저장</button>
-  <button class="zb del" id="zDel">🗑</button>
-  <button class="zb" id="zClose">✕</button>
+<!-- 콕 찍기 조준점 -->
+<div id="cross">
+  <svg viewBox="0 0 64 64" aria-hidden="true">
+    <circle class="ring" cx="32" cy="32" r="17"/>
+    <path class="tick" d="M32 6v9M32 49v9M6 32h9M49 32h9"/>
+    <circle class="dot" cx="32" cy="32" r="3.2"/>
+  </svg>
 </div>
 
 <!-- 지도 콕 찍기 툴바 -->
@@ -410,6 +447,11 @@ input,textarea{font-family:inherit}
   <label>카카오 JavaScript 키</label>
   <input id="sKey" placeholder="예) 1a2b3c4d5e6f..." autocomplete="off">
   <button class="go" id="sGo">시작하기</button>
+  <div class="setuprow">
+    <button class="act" id="sEye">👁 키 보기</button>
+    <button class="act" id="sPinSet">🔒 비밀번호 설정</button>
+    <button class="act del" id="sPinOff" hidden>🔓 해제</button>
+  </div>
   <div class="help">
     <b>키 발급 방법</b><br>
     1. developers.kakao.com → 내 애플리케이션 → 앱 추가<br>
@@ -442,9 +484,12 @@ function toast(msg,type=''){
 }
 
 /* ───────── SDK 로드 ───────── */
+/* 남에게 이 파일을 나눠 줄 때 아래에 JS 키를 넣어 두면 받는 사람은 키 입력 없이 바로 쓴다.
+   (JS 키는 브라우저가 카카오 서버로 보내는 값이라 완전히 감출 수는 없다) */
+const BUILT_IN_KEY='';
 function boot(){
   load();
-  const key=localStorage.getItem(LS_API);
+  const key=localStorage.getItem(LS_API)||BUILT_IN_KEY;
   if(!key){ $('setup').classList.add('show'); return; }
   loadSDK(key);
 }
@@ -466,11 +511,78 @@ $('sGo').onclick=()=>{
   $('setup').classList.remove('show');
   loadSDK(k);
 };
-$('btnSetup').onclick=()=>{
-  if(confirm('API 키를 다시 설정할까요? (배송 데이터는 유지됩니다)')){
-    $('sKey').value=localStorage.getItem(LS_API)||'';
-    $('setup').classList.add('show');
+/* ───────── 설정 잠금 (비밀번호) ─────────
+   비밀번호를 걸어 두면 ⚙️ 설정 화면(= API 키 확인·변경)을 열 때 물어본다.
+   앱이 브라우저에서 도는 구조라 개발자도구까지 막지는 못하고, 남이 무심코 보거나
+   키를 바꿔 버리는 것을 막는 잠금이다. 비밀번호는 해시로만 저장한다. */
+const LS_PIN='malpin.pin';
+async function hashPw(pw){
+  const s='malpin:'+pw;
+  if(window.crypto&&crypto.subtle&&window.isSecureContext){
+    const b=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(s));
+    return 's:'+[...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,'0')).join('');
   }
+  let h=5381;                       // 보안 컨텍스트가 아닐 때(파일로 직접 열기 등) 대체 해시
+  for(let i=0;i<s.length;i++)h=((h*33)^s.charCodeAt(i))>>>0;
+  return 'f:'+h.toString(16);
+}
+let pwCb=null;
+function askPw(title,msg,cb){
+  $('lockTitle').textContent=title; $('lockMsg').textContent=msg;
+  $('lockPw').value=''; $('lockHelp').textContent='';
+  $('lock').classList.add('show');
+  setTimeout(()=>$('lockPw').focus(),120);
+  pwCb=cb;
+}
+function closePw(){ $('lock').classList.remove('show'); pwCb=null; }
+$('lockOk').onclick=()=>{
+  const v=$('lockPw').value.trim();
+  if(!v){$('lockHelp').textContent='비밀번호를 입력하세요';return}
+  const cb=pwCb; closePw(); if(cb)cb(v);
+};
+$('lockCancel').onclick=()=>{ const cb=pwCb; closePw(); if(cb)cb(null) };
+$('lockPw').onkeydown=e=>{ if(e.key==='Enter')$('lockOk').click() };
+
+function openSetup(){
+  $('sKey').value=localStorage.getItem(LS_API)||'';
+  $('sKey').type='password';                  // 기본은 가려 두고 [👁 키 보기]로 확인
+  $('sEye').textContent='👁 키 보기';
+  const has=!!localStorage.getItem(LS_PIN);
+  $('sPinSet').textContent=has?'🔒 비밀번호 변경':'🔒 비밀번호 설정';
+  $('sPinOff').hidden=!has;
+  $('setup').classList.add('show');
+}
+$('btnSetup').onclick=()=>{
+  const stored=localStorage.getItem(LS_PIN);
+  if(!stored){ openSetup(); return; }
+  askPw('🔒 설정 잠금','비밀번호를 입력하세요',async pw=>{
+    if(pw===null)return;
+    if(await hashPw(pw)===stored) openSetup();
+    else toast('비밀번호가 틀렸어요','err');
+  });
+};
+$('sEye').onclick=()=>{
+  const k=$('sKey');
+  const show=k.type==='password';
+  k.type=show?'text':'password';
+  $('sEye').textContent=show?'🙈 가리기':'👁 키 보기';
+};
+$('sPinSet').onclick=()=>{
+  askPw('🔒 비밀번호 설정','설정 화면을 열 때 물어볼 비밀번호예요. (4자 이상)',async pw=>{
+    if(pw===null)return;
+    if(pw.length<4){toast('4자 이상으로 정해주세요','err');return}
+    askPw('🔒 한 번 더','같은 비밀번호를 다시 입력하세요',async pw2=>{
+      if(pw2===null)return;
+      if(pw2!==pw){toast('두 번 입력한 값이 달라요','err');return}
+      localStorage.setItem(LS_PIN,await hashPw(pw));
+      openSetup(); toast('설정 잠금 완료 — 다음부터 ⚙️ 누르면 물어봐요','ok');
+    });
+  });
+};
+$('sPinOff').onclick=()=>{
+  if(!confirm('설정 잠금을 해제할까요?'))return;
+  localStorage.removeItem(LS_PIN);
+  openSetup(); toast('설정 잠금 해제됨');
 };
 
 /* ───────── 지도 ───────── */
@@ -485,7 +597,6 @@ function initMap(){
   places=new kakao.maps.services.Places();
   if(IS_MOBILE)ensureKakaoJs();     // 내비 호출은 탭한 순간 바로 되도록 미리 준비
   bindDragPause();
-  renderZone();
   items.forEach(addOverlay);
   updateCounts();
   if(items.length) fitAll();
@@ -498,7 +609,7 @@ function initMap(){
 function addOverlay(it){
   const el=document.createElement('div');
   el.className='pin'+(it.done?' done':'');
-  el.innerHTML='<b>'+it.seq+'</b>';
+  el.innerHTML='<svg viewBox="0 0 26 40" aria-hidden="true"><path d="M13 39C13 39 2.5 24.5 2.5 13.5a10.5 10.5 0 1 1 21 0C23.5 24.5 13 39 13 39Z"/></svg><b>'+it.seq+'</b>';
   el.onclick=e=>{e.stopPropagation();openDetail(it.id)};
   const ov=new kakao.maps.CustomOverlay({
     position:new kakao.maps.LatLng(it.lat,it.lng),
@@ -547,8 +658,7 @@ function commit(spoken,resolved,lat,lng){
     seq:seq++, addr:resolved, spoken, memo:'', lat, lng, done:false, ts:Date.now()};
   items.push(it); save(); addOverlay(it); updateCounts();
   map.panTo(new kakao.maps.LatLng(lat,lng));
-  if(!inZone(lat,lng))toast('⚠️ #'+it.seq+' 배송구역 밖이에요 — 주소 확인!','err');
-  else toast('#'+it.seq+' 추가 — '+resolved,'ok');
+  toast('#'+it.seq+' 추가 — '+resolved,'ok');
   if(navigator.vibrate)navigator.vibrate(40);
 }
 
@@ -934,10 +1044,10 @@ function fitWrapForRotation(rotated){
 /* 화면 회전/창 크기 변경 시 대각선 길이 재계산 */
 addEventListener('resize',()=>{ if(mapAngle%360!==0) fitWrapForRotation(true); });
 
-/* 핀 하나를 지도 회전 반대로 돌려 세운다 (.pin 기본 -45deg 유지) */
+/* 핀 하나를 지도 회전 반대로 돌려 세운다 (끝점 기준 회전) */
 function applyPinCounterRotate(el){
   if(!el)return;
-  el.style.transform='rotate('+(-45 - mapAngle)+'deg)';
+  el.style.transform='rotate('+(-mapAngle)+'deg)';
 }
 function applyAllPinsCounterRotate(){
   Object.values(overlays).forEach(o=>applyPinCounterRotate(o.el));
@@ -1022,10 +1132,9 @@ let picking=false;
 $('mPick').onclick=()=>{closeSheets();startPick()};
 function startPick(){
   if(picking)return;
-  if(drawing)exitDraw();
   picking=true;
   $('pickbar').classList.add('show'); $('cross').classList.add('show');
-  toast('지도를 움직여 ＋를 배송지 건물에 맞추고 [추가]를 누르세요');
+  toast('지도를 움직여 조준점을 배송지 건물에 맞추고 [추가]를 누르세요');
 }
 $('pAdd').onclick=()=>{
   if(!geocoder)return;
@@ -1044,90 +1153,6 @@ $('pClose').onclick=endPick;
 function endPick(){
   picking=false;
   $('pickbar').classList.remove('show'); $('cross').classList.remove('show');
-}
-
-/* ───────── 배송구역 ───────── */
-const LS_ZONE='malpin.zone';
-let zone=null, zonePoly=null;
-let drawing=false, draft=[], draftDots=[], draftPoly=null;
-try{zone=JSON.parse(localStorage.getItem(LS_ZONE)||'null')}catch(e){zone=null}
-
-function renderZone(){
-  if(zonePoly){zonePoly.setMap(null);zonePoly=null}
-  if(zone&&zone.length>=3){
-    zonePoly=new kakao.maps.Polygon({
-      path:zone.map(p=>new kakao.maps.LatLng(p[0],p[1])),
-      strokeWeight:2.5,strokeColor:'#FFB020',strokeOpacity:.9,strokeStyle:'shortdash',
-      fillColor:'#FFB020',fillOpacity:.08
-    });
-    zonePoly.setMap(map);
-  }
-}
-$('lZone').onclick=()=>{closeSheets();startDraw()};
-function startDraw(){
-  if(drawing)return;
-  if(picking)endPick();
-  drawing=true; draft=[];
-  $('zonebar').classList.add('show'); $('cross').classList.add('show');
-  $('zCnt').textContent='0점';
-  toast('지도를 움직여 ＋에 맞추고 [점 추가]를 누르세요 (3점 이상)');
-}
-function addZonePoint(){
-  const c=map.getCenter();
-  draft.push([c.getLat(),c.getLng()]);
-  const el=document.createElement('div'); el.className='zonedot';
-  const d=new kakao.maps.CustomOverlay({position:c,content:el,yAnchor:.5});
-  d.setMap(map); draftDots.push(d);
-  if(navigator.vibrate)navigator.vibrate(25);
-  redrawDraft();
-}
-$('zAdd').onclick=addZonePoint;
-function redrawDraft(){
-  $('zCnt').textContent=draft.length+'점';
-  if(draftPoly){draftPoly.setMap(null);draftPoly=null}
-  if(draft.length>=2){
-    draftPoly=new kakao.maps.Polygon({
-      path:draft.map(p=>new kakao.maps.LatLng(p[0],p[1])),
-      strokeWeight:2.5,strokeColor:'#FFB020',strokeOpacity:1,
-      fillColor:'#FFB020',fillOpacity:.15
-    });
-    draftPoly.setMap(map);
-  }
-}
-$('zUndo').onclick=()=>{
-  if(!draft.length)return;
-  draft.pop(); const d=draftDots.pop(); if(d)d.setMap(null);
-  redrawDraft();
-};
-$('zSave').onclick=()=>{
-  if(draft.length<3){toast('3점 이상 찍어야 구역이 돼요','err');return}
-  zone=draft.slice(); localStorage.setItem(LS_ZONE,JSON.stringify(zone));
-  renderZone(); exitDraw(); toast('배송구역 저장 완료','ok');
-};
-$('zDel').onclick=()=>{
-  if(!zone&&!draft.length){exitDraw();return}
-  if(!confirm('저장된 배송구역을 삭제할까요?'))return;
-  zone=null; localStorage.removeItem(LS_ZONE);
-  renderZone(); exitDraw(); toast('배송구역 삭제됨');
-};
-$('zClose').onclick=exitDraw;
-function exitDraw(){
-  drawing=false;
-  draftDots.forEach(d=>d.setMap(null)); draftDots=[];
-  if(draftPoly){draftPoly.setMap(null);draftPoly=null}
-  draft=[];
-  $('zonebar').classList.remove('show');
-  $('cross').classList.remove('show');
-}
-/* 점이 구역 안에 있는지 (ray casting) */
-function inZone(lat,lng){
-  if(!zone||zone.length<3)return true;
-  let inside=false;
-  for(let i=0,j=zone.length-1;i<zone.length;j=i++){
-    const yi=zone[i][0],xi=zone[i][1],yj=zone[j][0],xj=zone[j][1];
-    if(((yi>lat)!==(yj>lat)) && (lng < (xj-xi)*(lat-yi)/(yj-yi)+xi)) inside=!inside;
-  }
-  return inside;
 }
 
 function updateCounts(){
