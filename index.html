@@ -609,7 +609,8 @@ function initMap(){
 function addOverlay(it){
   const el=document.createElement('div');
   el.className='pin'+(it.done?' done':'');
-  el.innerHTML='<svg viewBox="0 0 26 40" aria-hidden="true"><path d="M13 39C13 39 2.5 24.5 2.5 13.5a10.5 10.5 0 1 1 21 0C23.5 24.5 13 39 13 39Z"/></svg><b>'+it.seq+'</b>';
+  /* 말풍선형: 중심(13,13) 반지름 11 의 원이 그대로 보이고, 아래쪽에서 짧은 꼬리가 갈라져 (13,39)로 뾰족하게 */
+  el.innerHTML='<svg viewBox="0 0 26 40" aria-hidden="true"><path d="M5.64 21.17A11 11 0 1 1 20.36 21.17L13 39Z"/></svg><b>'+it.seq+'</b>';
   el.onclick=e=>{e.stopPropagation();openDetail(it.id)};
   const ov=new kakao.maps.CustomOverlay({
     position:new kakao.maps.LatLng(it.lat,it.lng),
