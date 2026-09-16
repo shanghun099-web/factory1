@@ -99,9 +99,17 @@ input,textarea{font-family:inherit}
 #angleBadge.show{display:flex}
 
 /* 내 위치 아이콘 (me-icon.png, 강아지 핀). 핀 끝점이 실제 내 위치 — 끝점 위치는 가로 52.7%·세로 76.2%
-   (CustomOverlay의 xAnchor/yAnchor 와 같은 값). 크기를 바꾸려면 height 만 바꾸면 비율대로 따라감 */
-.me{height:48px;aspect-ratio:116/144;background:url(me-icon.png) center/contain no-repeat;
-  filter:drop-shadow(0 2px 4px rgba(0,0,0,.35));position:relative}
+   (CustomOverlay의 xAnchor/yAnchor 와 같은 값). 크기를 바꾸려면 height 만 바꾸면 비율대로 따라감
+   .me      : 지도 회전 보정 + 이동 방향으로 살짝 기울기 (끝점 기준으로 돈다)
+   .me-img  : 그림 자체. 움직이는 중(.run)엔 위아래로 통통 튀며 달려가는 느낌 */
+.me{height:48px;aspect-ratio:116/144;position:relative;
+  transform-origin:52.7% 76.2%;transition:transform .5s ease-out}
+#mapwrap.dragging .me{transition:none}
+.me-img{position:absolute;inset:0;background:url(me-icon.png) center/contain no-repeat;
+  filter:drop-shadow(0 2px 4px rgba(0,0,0,.35));transform-origin:52.7% 76.2%}
+.me.run .me-img{animation:merun .32s ease-in-out infinite alternate}
+@keyframes merun{from{transform:translateY(0) rotate(-4deg)}to{transform:translateY(-5px) rotate(4deg)}}
+@media (prefers-reduced-motion: reduce){.me.run .me-img{animation:none}}
 .me::after{content:"";position:absolute;width:32px;height:32px;left:52.7%;top:76.2%;
   margin:-16px 0 0 -16px;border-radius:50%;
   border:2px solid rgba(92,168,255,.5);animation:mepulse 2s ease-out infinite}
@@ -1072,7 +1080,16 @@ $('dDel').onclick=()=>{
 };
 function removeItem(id){
   const o=overlays[id]; if(o){o.ov.setMap(null);delete overlays[id]}
-  items=items.filter(i=>i.id!==id); save(); updateCounts();
+  items=items.filter(i=>i.id!==id); renumber(); save(); updateCounts();
+}
+/* 배송지를 지우면 남은 핀을 1번부터 다시 매긴다 (순서는 그대로) — 남은 핀 수가 곧 마지막 번호가 되게.
+   지도 위 핀의 숫자·목록·상세 카드 모두 it.seq 를 읽으므로 값과 핀 글자만 바꾸면 된다 */
+function renumber(){
+  [...items].sort((a,b)=>a.seq-b.seq).forEach((it,i)=>{
+    it.seq=i+1;
+    const o=overlays[it.id]; if(o){const b=o.el.querySelector('b'); if(b)b.textContent=it.seq;}
+  });
+  seq=items.length+1;
 }
 
 /* ───────── 목록 ───────── */
@@ -1114,7 +1131,7 @@ $('lClearDone').onclick=()=>{
   if(!n){toast('완료된 건이 없어요');return}
   if(!confirm('완료된 '+n+'건을 목록에서 정리할까요?'))return;
   items.filter(i=>i.done).forEach(i=>{const o=overlays[i.id];if(o){o.ov.setMap(null);delete overlays[i.id]}});
-  items=items.filter(i=>!i.done); save(); updateCounts(); renderList();
+  items=items.filter(i=>!i.done); renumber(); save(); updateCounts(); renderList();
 };
 $('lClearAll').onclick=()=>{
   if(!items.length)return;
@@ -1140,7 +1157,7 @@ function submitManual(){
 }
 
 /* ───────── 내 위치 추적 ───────── */
-let watchId=null, myOv=null, myPos=null, follow=true;
+let watchId=null, myOv=null, myEl=null, myPos=null, follow=true;
 
 /* 📍 짧게 누르면: 지도를 내 위치로 바로 옮기고 따라가기 켬 (추적이 꺼져 있으면 추적도 시작)
    📍 길게 누르면(0.6초): 위치 추적 종료
@@ -1185,7 +1202,8 @@ $('btnLoc').addEventListener('contextmenu',e=>e.preventDefault());
 function stopTrack(){
   clearTimeout(locWaitTimer);
   if(watchId!==null){navigator.geolocation.clearWatch(watchId);watchId=null}
-  if(myOv){myOv.setMap(null);myOv=null}
+  if(myOv){myOv.setMap(null);myOv=null;myEl=null}
+  clearTimeout(meStillTimer); meMoving=false; meLean=0;
   myPos=null; $('btnLoc').classList.remove('on');
   $('navchip').classList.remove('show');
 }
@@ -1194,12 +1212,36 @@ function onPos(p){
   myPos=new kakao.maps.LatLng(p.coords.latitude,p.coords.longitude);
   if(first){ clearTimeout(locWaitTimer); toast('내 위치로 이동 — 강아지 핀이 내 위치예요','ok'); }
   if(!myOv){
-    const el=document.createElement('div'); el.className='me';
-    myOv=new kakao.maps.CustomOverlay({position:myPos,content:el,xAnchor:.527,yAnchor:.762,zIndex:5});
+    myEl=document.createElement('div'); myEl.className='me'; myEl.innerHTML='<div class="me-img"></div>';
+    myOv=new kakao.maps.CustomOverlay({position:myPos,content:myEl,xAnchor:.527,yAnchor:.762,zIndex:5});
     myOv.setMap(map);
   }else myOv.setPosition(myPos);
+  updateMeMotion(p.coords);
   if(follow)map.panTo(myPos);
   updateNavchip();
+}
+/* ── 이동 방향 기울기 + 달리기 ──
+   heading(북 기준 시계방향 각도)·speed(m/s)는 움직일 때만 유효하다 (멈추면 null/NaN).
+   동쪽으로 갈수록 오른쪽, 서쪽으로 갈수록 왼쪽으로 최대 ME_LEAN_MAX° 기울고, 남북 방향은 기울지 않는다.
+   지도가 회전돼 있으면 화면 기준 진행 방향(heading+mapAngle)으로 계산한다. */
+const ME_LEAN_MAX=22, ME_RUN_SPEED=1.0; // 1 m/s(3.6km/h) 이상이면 '움직이는 중'
+let meLean=0, meMoving=false, meStillTimer=null;
+function updateMeMotion(c){
+  const moving=Number.isFinite(c.speed)&&c.speed>=ME_RUN_SPEED;
+  if(moving&&Number.isFinite(c.heading)){
+    meLean=Math.sin((c.heading+mapAngle)*Math.PI/180)*ME_LEAN_MAX;
+  }
+  if(moving){ meMoving=true; clearTimeout(meStillTimer); }
+  else{ // 위치 갱신이 뜸해도 바로 멈추지 않도록 잠깐 여유
+    clearTimeout(meStillTimer);
+    meStillTimer=setTimeout(()=>{meMoving=false;meLean=0;applyMeTransform()},2500);
+  }
+  applyMeTransform();
+}
+function applyMeTransform(){
+  if(!myEl)return;
+  myEl.style.transform='rotate('+(-mapAngle+meLean)+'deg)';
+  myEl.classList.toggle('run',meMoving);
 }
 /* 한 번짜리 요청의 실패는 조용히 — 권한 거부만 알리고, 나머지는 15초 안내 타이머가 처리 */
 function oneShotErr(e){ if(e.code===1) posErr(e); }
@@ -1287,6 +1329,7 @@ function applyPinCounterRotate(el){
 }
 function applyAllPinsCounterRotate(){
   Object.values(overlays).forEach(o=>applyPinCounterRotate(o.el));
+  applyMeTransform();
 }
 function normAngle(a){
   a=a%360;
