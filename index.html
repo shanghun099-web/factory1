@@ -352,7 +352,7 @@ input,textarea{font-family:inherit}
   <div class="stat pending"><b id="cntPending">0</b><span>대기</span></div>
   <div class="stat done"><b id="cntDone">0</b><span>완료</span></div>
   <div class="spacer"></div>
-  <button class="iconbtn" id="btnLoc" title="내 위치 추적">📍</button>
+  <button class="iconbtn" id="btnLoc" title="내 위치로 이동 (길게 누르면 추적 종료)">📍</button>
   <button class="iconbtn" id="btnFit" title="전체 보기">⛶</button>
   <button class="iconbtn" id="btnSetup" title="설정">⚙️</button>
 </div>
@@ -1140,18 +1140,35 @@ function submitManual(){
 /* ───────── 내 위치 추적 ───────── */
 let watchId=null, myOv=null, myPos=null, follow=true;
 
+/* 📍 짧게 누르면: 지도를 내 위치로 바로 옮기고 따라가기 켬 (추적이 꺼져 있으면 추적도 시작)
+   📍 길게 누르면(0.6초): 위치 추적 종료 */
 $('btnLoc').onclick=()=>{
-  if(watchId!==null){
-    // 이미 추적 중 → 따라가기가 꺼져 있으면 다시 켜고, 켜져 있으면 추적 종료
-    if(!follow){follow=true;if(myPos)map.panTo(myPos);toast('내 위치 따라가기 켬');return}
-    stopTrack(); toast('위치 추적 종료'); return;
-  }
+  if(locLongPressed){locLongPressed=false;return} // 길게 눌러 종료한 직후의 click은 무시
   if(!navigator.geolocation){toast('이 기기는 위치를 지원하지 않아요','err');return}
+  follow=true;
+  // 이미 알고 있는 위치가 있으면 기다리지 않고 바로 이동
+  if(myPos) map.setCenter(myPos);
+  // 지금 위치를 한 번 바로 받아와 지도를 옮긴다 (watchPosition 첫 응답이 늦어도 바로 움직이도록)
+  navigator.geolocation.getCurrentPosition(p=>{follow=true;onPos(p);map.setCenter(myPos)},posErr,
+    {enableHighAccuracy:true,maximumAge:10000,timeout:10000});
+  if(watchId!==null){toast('내 위치로 이동'); return}
   watchId=navigator.geolocation.watchPosition(onPos,posErr,
     {enableHighAccuracy:true,maximumAge:3000,timeout:15000});
-  $('btnLoc').classList.add('on'); follow=true;
+  $('btnLoc').classList.add('on');
   toast('위치 추적 시작 — 파란 점이 내 위치예요','ok');
 };
+let locLongPressed=false, locPressTimer=null;
+const locPressStart=()=>{
+  clearTimeout(locPressTimer);
+  locPressTimer=setTimeout(()=>{
+    if(watchId===null) return;
+    locLongPressed=true; stopTrack(); toast('위치 추적 종료');
+  },600);
+};
+const locPressEnd=()=>clearTimeout(locPressTimer);
+$('btnLoc').addEventListener('pointerdown',locPressStart);
+['pointerup','pointerleave','pointercancel'].forEach(ev=>$('btnLoc').addEventListener(ev,locPressEnd));
+$('btnLoc').addEventListener('contextmenu',e=>e.preventDefault());
 function stopTrack(){
   if(watchId!==null){navigator.geolocation.clearWatch(watchId);watchId=null}
   if(myOv){myOv.setMap(null);myOv=null}
