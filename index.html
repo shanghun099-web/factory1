@@ -98,10 +98,12 @@ input,textarea{font-family:inherit}
 }
 #angleBadge.show{display:flex}
 
-/* 내 위치 파란 점 */
-.me{width:18px;height:18px;border-radius:50%;background:var(--blue);
-  border:3px solid #fff;box-shadow:0 0 0 2px rgba(92,168,255,.35),0 2px 8px rgba(0,0,0,.4);position:relative}
-.me::after{content:"";position:absolute;inset:-8px;border-radius:50%;
+/* 내 위치 아이콘 (me-icon.png, 강아지 핀). 핀 끝점이 실제 내 위치 — 끝점 위치는 가로 52.7%·세로 76.2%
+   (CustomOverlay의 xAnchor/yAnchor 와 같은 값). 크기를 바꾸려면 height 만 바꾸면 비율대로 따라감 */
+.me{height:48px;aspect-ratio:116/144;background:url(me-icon.png) center/contain no-repeat;
+  filter:drop-shadow(0 2px 4px rgba(0,0,0,.35));position:relative}
+.me::after{content:"";position:absolute;width:32px;height:32px;left:52.7%;top:76.2%;
+  margin:-16px 0 0 -16px;border-radius:50%;
   border:2px solid rgba(92,168,255,.5);animation:mepulse 2s ease-out infinite}
 @keyframes mepulse{from{transform:scale(.6);opacity:1}to{transform:scale(1.6);opacity:0}}
 @media (prefers-reduced-motion: reduce){.me::after{animation:none}}
@@ -1179,7 +1181,7 @@ function onPos(p){
   myPos=new kakao.maps.LatLng(p.coords.latitude,p.coords.longitude);
   if(!myOv){
     const el=document.createElement('div'); el.className='me';
-    myOv=new kakao.maps.CustomOverlay({position:myPos,content:el,yAnchor:.5,zIndex:5});
+    myOv=new kakao.maps.CustomOverlay({position:myPos,content:el,xAnchor:.527,yAnchor:.762,zIndex:5});
     myOv.setMap(map);
   }else myOv.setPosition(myPos);
   if(follow)map.panTo(myPos);
