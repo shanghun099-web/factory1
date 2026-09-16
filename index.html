@@ -1143,24 +1143,35 @@ function submitManual(){
 let watchId=null, myOv=null, myPos=null, follow=true;
 
 /* 📍 짧게 누르면: 지도를 내 위치로 바로 옮기고 따라가기 켬 (추적이 꺼져 있으면 추적도 시작)
-   📍 길게 누르면(0.6초): 위치 추적 종료 */
+   📍 길게 누르면(0.6초): 위치 추적 종료
+   첫 위치는 GPS 를 기다리면 실내에선 수 초~수십 초 걸리므로, 먼저 Wi-Fi/기지국 기반의 '빠른 대략 위치'로
+   지도를 즉시 옮기고, 그 뒤 GPS(watchPosition)가 정확한 위치로 따라 잡는다. */
+let locWaitTimer=null;
 $('btnLoc').onclick=()=>{
   if(locLongPressed){locLongPressed=false;return} // 길게 눌러 종료한 직후의 click은 무시
   if(!navigator.geolocation){toast('이 기기는 위치를 지원하지 않아요','err');return}
   follow=true;
-  // 이미 알고 있는 위치가 있으면 기다리지 않고 바로 이동
-  if(myPos) map.setCenter(myPos);
-  // 지금 위치를 한 번 바로 받아와 지도를 옮긴다 (watchPosition 첫 응답이 늦어도 바로 움직이도록)
-  navigator.geolocation.getCurrentPosition(p=>{follow=true;onPos(p);map.setCenter(myPos)},posErr,
-    {enableHighAccuracy:true,maximumAge:10000,timeout:10000});
-  if(watchId!==null){toast('내 위치로 이동'); return}
+  if(myPos){ map.setCenter(myPos); toast('내 위치로 이동'); }
+  else toast('내 위치 찾는 중…');
+  // 1) 빠른 대략 위치 (최근 1분 안의 캐시도 허용) → 즉시 이동
+  navigator.geolocation.getCurrentPosition(p=>{follow=true;onPos(p);map.setCenter(myPos)},oneShotErr,
+    {enableHighAccuracy:false,maximumAge:60000,timeout:6000});
+  // 2) 정확한 위치 한 번 더 (빠른 위치가 실패해도 이걸로 이동. 그새 지도를 손으로 움직였으면 따라가진 않음)
+  navigator.geolocation.getCurrentPosition(onPos,oneShotErr,
+    {enableHighAccuracy:true,maximumAge:5000,timeout:15000});
+  // 3) 15초 안에 아무 위치도 못 받으면 안내
+  clearTimeout(locWaitTimer);
+  if(!myPos) locWaitTimer=setTimeout(()=>{
+    if(!myPos) toast('위치를 아직 못 찾았어요 — 하늘이 보이는 곳에서 다시 눌러보세요','err');
+  },15000);
+  if(watchId!==null) return;
   watchId=navigator.geolocation.watchPosition(onPos,posErr,
     {enableHighAccuracy:true,maximumAge:3000,timeout:15000});
   $('btnLoc').classList.add('on');
-  toast('위치 추적 시작 — 파란 점이 내 위치예요','ok');
 };
 let locLongPressed=false, locPressTimer=null;
 const locPressStart=()=>{
+  locLongPressed=false;              // 이전 길게 누르기 뒤 click 이 안 왔어도 여기서 리셋
   clearTimeout(locPressTimer);
   locPressTimer=setTimeout(()=>{
     if(watchId===null) return;
@@ -1172,13 +1183,16 @@ $('btnLoc').addEventListener('pointerdown',locPressStart);
 ['pointerup','pointerleave','pointercancel'].forEach(ev=>$('btnLoc').addEventListener(ev,locPressEnd));
 $('btnLoc').addEventListener('contextmenu',e=>e.preventDefault());
 function stopTrack(){
+  clearTimeout(locWaitTimer);
   if(watchId!==null){navigator.geolocation.clearWatch(watchId);watchId=null}
   if(myOv){myOv.setMap(null);myOv=null}
   myPos=null; $('btnLoc').classList.remove('on');
   $('navchip').classList.remove('show');
 }
 function onPos(p){
+  const first=!myPos;
   myPos=new kakao.maps.LatLng(p.coords.latitude,p.coords.longitude);
+  if(first){ clearTimeout(locWaitTimer); toast('내 위치로 이동 — 강아지 핀이 내 위치예요','ok'); }
   if(!myOv){
     const el=document.createElement('div'); el.className='me';
     myOv=new kakao.maps.CustomOverlay({position:myPos,content:el,xAnchor:.527,yAnchor:.762,zIndex:5});
@@ -1187,6 +1201,8 @@ function onPos(p){
   if(follow)map.panTo(myPos);
   updateNavchip();
 }
+/* 한 번짜리 요청의 실패는 조용히 — 권한 거부만 알리고, 나머지는 15초 안내 타이머가 처리 */
+function oneShotErr(e){ if(e.code===1) posErr(e); }
 function posErr(e){
   if(e.code===1)toast('위치 권한을 허용해주세요','err');
   else if(e.code===3)return; // timeout은 조용히 재시도
