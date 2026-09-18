@@ -239,6 +239,18 @@ input,textarea{font-family:inherit}
 .pin.done b{color:#0B2418}
 .pin.sel svg path{stroke:var(--blue);stroke-width:3}
 .pin.sel{filter:drop-shadow(0 0 6px rgba(92,168,255,.9)) drop-shadow(0 3px 4px rgba(0,0,0,.45))}
+/* 선택한 핀 위에 뜨는 주소 말풍선 — .sel 일 때만 보인다 (핀이 몰려도 겹치지 않게) */
+.pin .lbl{
+  display:none;position:absolute;bottom:calc(100% + 7px);left:50%;transform:translateX(-50%);
+  background:var(--panel);color:#fff;border:1.5px solid var(--blue);border-radius:9px;
+  padding:5px 10px;font-size:12.5px;font-weight:800;line-height:1.2;white-space:nowrap;
+  letter-spacing:-.01em;pointer-events:none;box-shadow:0 3px 10px rgba(0,0,0,.5);
+}
+.pin .lbl::after{
+  content:"";position:absolute;top:100%;left:50%;margin-left:-6px;
+  border:6px solid transparent;border-top-color:var(--blue);border-bottom:0;
+}
+.pin.sel .lbl{display:block}
 
 /* ── 시트 공통 ── */
 .sheet{
@@ -655,11 +667,24 @@ function initMap(){
     },()=>{},{timeout:4000});
   }
 }
+/* 말풍선용 짧은 주소: "서울 강남구 일원로3길 13" → "일원로3길 13", 지번이면 "일원동 123-4",
+   상호 검색 결과("스타벅스 (서울 … 일원로 12)")면 "스타벅스 · 일원로 12". 못 줄이면 원문 그대로 */
+function shortAddr(a){
+  a=String(a||'').trim();
+  let name='';
+  const m0=a.match(/^(.+?)\s*\((.+)\)$/);
+  if(m0){name=m0[1].trim();a=m0[2].trim()}
+  const m1=a.match(/([가-힣A-Za-z0-9·]+(?:로|길)\s?\d+(?:-\d+)?)/);
+  const m2=a.match(/([가-힣]+(?:동|읍|면|리)\s?(?:산\s?)?\d+(?:-\d+)?)/);
+  const core=m1?m1[1]:(m2?m2[1]:a);
+  return name?(name+' · '+core):core;
+}
 function addOverlay(it){
   const el=document.createElement('div');
   el.className='pin'+(it.done?' done':'');
   /* 말풍선형: 중심(13,13) 반지름 11 의 원이 그대로 보이고, 아래쪽에서 짧은 꼬리가 갈라져 (13,39)로 뾰족하게 */
   el.innerHTML='<svg viewBox="0 0 26 40" aria-hidden="true"><path d="M5.64 21.17A11 11 0 1 1 20.36 21.17L13 39Z"/></svg><b>'+it.seq+'</b>';
+  const lbl=document.createElement('div'); lbl.className='lbl'; lbl.textContent=shortAddr(it.addr); el.appendChild(lbl);
   el.onclick=e=>{e.stopPropagation();openDetail(it.id)};
   const ov=new kakao.maps.CustomOverlay({
     position:new kakao.maps.LatLng(it.lat,it.lng),
@@ -671,7 +696,9 @@ function addOverlay(it){
 }
 function refreshPin(it){
   const o=overlays[it.id]; if(!o)return;
-  o.el.className='pin'+(it.done?' done':'')+(it.id===selectedId?' sel':'');
+  const sel=it.id===selectedId;
+  o.el.className='pin'+(it.done?' done':'')+(sel?' sel':'');
+  o.ov.setZIndex(sel?10:0);
   applyPinCounterRotate(o.el);
 }
 function fitAll(){
