@@ -239,7 +239,9 @@ input,textarea{font-family:inherit}
 .pin.done b{color:#0B2418}
 .pin.sel svg path{stroke:var(--blue);stroke-width:3}
 .pin.sel{filter:drop-shadow(0 0 6px rgba(92,168,255,.9)) drop-shadow(0 3px 4px rgba(0,0,0,.45))}
-/* 선택한 핀 위에 뜨는 주소 말풍선 — .sel 일 때만 보인다 (핀이 몰려도 겹치지 않게) */
+/* 핀 위 주소 말풍선 — 한 번에 한 핀(.lbl-on)만 보인다 (핀이 몰려도 겹치지 않게)
+   기본은 내 위치에서 가장 가까운 미배송지, 핀을 탭하면 그 핀으로 옮겨가고 카드를 닫아도 남는다.
+   지도 빈 곳을 탭하면 다시 가까운 배송지로 돌아간다 */
 .pin .lbl{
   display:none;position:absolute;bottom:calc(100% + 7px);left:50%;transform:translateX(-50%);
   background:var(--panel);color:#fff;border:1.5px solid var(--blue);border-radius:9px;
@@ -250,7 +252,7 @@ input,textarea{font-family:inherit}
   content:"";position:absolute;top:100%;left:50%;margin-left:-6px;
   border:6px solid transparent;border-top-color:var(--blue);border-bottom:0;
 }
-.pin.sel .lbl{display:block}
+.pin.lbl-on .lbl{display:block}
 
 /* ── 시트 공통 ── */
 .sheet{
@@ -658,6 +660,7 @@ function initMap(){
   places=new kakao.maps.services.Places();
   if(IS_MOBILE)ensureKakaoJs();     // 내비 호출은 탭한 순간 바로 되도록 미리 준비
   bindDragPause();
+  kakao.maps.event.addListener(map,'click',()=>{ if(manualLblId){manualLblId=null;syncLabel()} });
   items.forEach(addOverlay);
   updateCounts();
   if(items.length) fitAll();
@@ -696,10 +699,20 @@ function addOverlay(it){
 }
 function refreshPin(it){
   const o=overlays[it.id]; if(!o)return;
-  const sel=it.id===selectedId;
-  o.el.className='pin'+(it.done?' done':'')+(sel?' sel':'');
-  o.ov.setZIndex(sel?10:0);
+  const sel=it.id===selectedId, lbl=it.id===lblId;
+  o.el.className='pin'+(it.done?' done':'')+(sel?' sel':'')+(lbl?' lbl-on':'');
+  o.ov.setZIndex(sel?10:(lbl?9:0));
   applyPinCounterRotate(o.el);
+}
+/* 말풍선 대상: 손으로 고른 핀(manualLblId)이 있고 아직 미배송이면 그 핀, 아니면 가까운 배송지(chipTarget) */
+let lblId=null, manualLblId=null;
+function syncLabel(){
+  const m=manualLblId&&items.find(i=>i.id===manualLblId&&!i.done);
+  if(!m)manualLblId=null;
+  const next=m?m.id:(chipTarget||null);
+  if(next===lblId)return;
+  const prev=lblId; lblId=next;
+  [prev,next].forEach(id=>{const it=id&&items.find(i=>i.id===id); if(it)refreshPin(it)});
 }
 function fitAll(){
   if(!items.length){toast('등록된 배송지가 없어요');return}
@@ -1019,7 +1032,7 @@ function openDetail(id){
   /* 시트를 먼저 연다 — openSheet 안의 closeSheets가 선택(selectedId)을 지우기 때문에
      순서가 반대면 카드가 열린 뒤 선택이 없어져 배송완료·길찾기·삭제가 모두 먹통이 된다. */
   openSheet('detail');
-  selectedId=id; refreshPin(it);
+  selectedId=id; manualLblId=id; syncLabel(); refreshPin(it);
   $('dSeq').textContent='#'+it.seq;
   $('dAddr').textContent=it.addr;
   $('dMeta').textContent=(it.spoken&&it.spoken!==it.addr?'인식: "'+it.spoken+'" · ':'')+new Date(it.ts).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'})+' 등록';
@@ -1294,9 +1307,9 @@ function fmtDist(m){return m<1000?Math.round(m)+'m':(m/1000).toFixed(1)+'km'}
 let chipTarget=null;
 function updateNavchip(){
   const chip=$('navchip');
-  if(!myPos){chip.classList.remove('show');return}
+  if(!myPos){chip.classList.remove('show');chipTarget=null;syncLabel();return}
   const pending=items.filter(i=>!i.done);
-  if(!pending.length){chip.classList.remove('show');chipTarget=null;return}
+  if(!pending.length){chip.classList.remove('show');chipTarget=null;syncLabel();return}
   let best=null,bd=Infinity;
   pending.forEach(i=>{
     const d=distM(myPos,new kakao.maps.LatLng(i.lat,i.lng));
@@ -1305,6 +1318,7 @@ function updateNavchip(){
   chipTarget=best.id;
   chip.innerHTML='🚚 가까운 배송지 <b>#'+best.seq+'</b>&nbsp;<b>'+fmtDist(bd)+'</b>';
   chip.classList.add('show');
+  syncLabel();
 }
 $('navchip').onclick=()=>{if(chipTarget)openDetail(chipTarget)};
 
@@ -1465,6 +1479,7 @@ function updateCounts(){
   $('cntPending').textContent=items.filter(i=>!i.done).length;
   $('cntDone').textContent=items.filter(i=>i.done).length;
   if(typeof updateNavchip==='function'&&myPos)updateNavchip();
+  else syncLabel();
 }
 
 boot();
