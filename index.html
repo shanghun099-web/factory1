@@ -76,28 +76,6 @@ input,textarea{font-family:inherit}
 .iconbtn.on{border-color:var(--blue);color:var(--blue);box-shadow:0 0 0 2px rgba(92,168,255,.25)}
 
 /* ── 회전 컨트롤 (우측 세로 스택) ── */
-#rotctl{
-  position:fixed;right:12px;z-index:19;
-  bottom:calc(var(--dock-h) + env(safe-area-inset-bottom) + 24px);
-  display:flex;flex-direction:column;align-items:center;gap:8px;
-}
-#rotctl .rbtn{
-  width:48px;height:48px;border-radius:50%;
-  background:var(--panel);border:1px solid var(--line);
-  display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:700;
-  box-shadow:0 4px 14px rgba(0,0,0,.4);color:var(--text);
-}
-#rotctl .rbtn:active{transform:scale(.9)}
-#rotctl .rbtn.reset{font-size:15px;font-weight:800}
-/* 각도 표시 배지 (누르면 북쪽 리셋) */
-#angleBadge{
-  min-width:52px;height:34px;padding:0 10px;border-radius:999px;
-  background:var(--panel);border:1px solid var(--line);
-  display:none;align-items:center;justify-content:center;gap:4px;
-  font-size:13px;font-weight:800;font-variant-numeric:tabular-nums;
-  box-shadow:0 4px 14px rgba(0,0,0,.4);color:var(--amber);
-}
-#angleBadge.show{display:flex}
 
 /* 내 위치 아이콘 (me-icon.png, 강아지 핀). 핀 끝점이 실제 내 위치 — 끝점 위치는 가로 52.7%·세로 76.2%
    (CustomOverlay의 xAnchor/yAnchor 와 같은 값). 크기를 바꾸려면 height 만 바꾸면 비율대로 따라감
@@ -129,64 +107,39 @@ input,textarea{font-family:inherit}
 #navchip.show{display:flex}
 #navchip b{color:var(--blue);font-variant-numeric:tabular-nums}
 
-/* ── 지도 콕 찍기 / 촬영 누적 툴바 ── */
-#pickbar,#shotbar{
-  position:fixed;left:50%;transform:translateX(-50%);
-  bottom:calc(var(--dock-h) + env(safe-area-inset-bottom) + 20px);z-index:22;
-  background:var(--panel);border:1px solid var(--amber);border-radius:14px;
-  padding:8px 10px;display:none;align-items:center;gap:6px;
-  box-shadow:0 8px 24px rgba(0,0,0,.5);
+/* ── 배송 목록 패널 — 화면 아래 고정, 지도를 어둡게 하지 않음. --lp-h 는 현재 패널 높이(JS 갱신) ── */
+:root{--lp-h:236px;}
+#listpanel{
+  position:fixed;left:0;right:0;bottom:0;z-index:30;
+  background:var(--panel);border-top:1px solid var(--line);border-radius:18px 18px 0 0;
+  box-shadow:0 -8px 30px rgba(0,0,0,.45);
+  padding-bottom:env(safe-area-inset-bottom);
 }
-#pickbar.show,#shotbar.show{display:flex}
-#shotbar .cnt{font-size:13px;color:var(--dim);padding:0 6px;min-width:36px;text-align:center}
-#pickbar .zb,#shotbar .zb{
-  height:40px;padding:0 13px;border-radius:10px;font-size:14px;font-weight:700;
-  background:var(--panel2);border:1px solid var(--line);color:var(--text);
-  white-space:nowrap;
+.lp-head{
+  display:flex;align-items:center;gap:8px;height:46px;padding:0 10px 0 14px;cursor:pointer;
+  user-select:none;-webkit-user-select:none;
 }
-#pickbar .zb:active,#shotbar .zb:active{transform:scale(.95)}
-#pickbar .zb.add,#shotbar .zb.add{background:var(--panel2);color:var(--amber);border-color:rgba(255,176,32,.5)}
-#shotbar .zb.save{background:var(--amber);color:#241800;border-color:transparent}
-#photo .body{padding:6px 18px 18px}
-#photo .hint{margin-top:12px;font-size:12.5px;color:var(--dim);line-height:1.6}
+.lp-head b{font-size:15px}
+.lp-head .sub{font-size:12px;color:var(--dim)}
+.lp-head .chev{font-size:14px;color:var(--dim);width:16px;transition:transform .2s}
+#listpanel.collapsed .chev{transform:rotate(-90deg)}
+.lp-btn{
+  height:34px;padding:0 12px;border-radius:10px;border:1px solid var(--line);background:var(--panel2);
+  color:var(--text);font-size:13px;font-weight:600;white-space:nowrap;display:flex;align-items:center;gap:4px;
+}
+.lp-btn:active{transform:scale(.95)}
+#listpanel .items{height:190px;overflow-y:auto;padding:0 8px 8px;overscroll-behavior:contain}
+#listpanel.collapsed .items{display:none}
 
-/* 콕 찍기 조준점 — 화면 중앙 고정(지도 회전 영향 없음). 얇은 링 + 중심점 + 바깥 눈금 */
-#cross{
-  position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:18;
-  width:64px;height:64px;pointer-events:none;display:none;
-}
-#cross.show{display:block}
-#cross svg{width:100%;height:100%;overflow:visible;filter:drop-shadow(0 1px 3px rgba(0,0,0,.6))}
-#cross .ring,#cross .tick{fill:none;stroke:var(--amber);stroke-width:2;stroke-linecap:round}
-#cross .ring{stroke-opacity:.95;transform-origin:50% 50%;animation:breathe 2.2s ease-in-out infinite}
-#cross .dot{fill:var(--amber);stroke:#fff;stroke-width:1.5}
-@keyframes breathe{0%,100%{transform:scale(1)}50%{transform:scale(1.07)}}
-@media (prefers-reduced-motion: reduce){#cross .ring{animation:none}}
-
-/* ── 하단 도크 ── */
-#dock{
-  position:fixed;left:0;right:0;bottom:0;z-index:20;
-  padding:10px 12px calc(env(safe-area-inset-bottom) + 14px);
-  display:flex;align-items:center;justify-content:space-between;gap:8px;
-  background:linear-gradient(to top, rgba(21,24,29,.95) 60%, rgba(21,24,29,0));
-}
-.dockbtn{
-  flex:1;min-width:0;height:52px;border-radius:14px;padding:0 4px;
-  background:var(--panel);border:1px solid var(--line);
-  font-size:13.5px;font-weight:600;color:var(--text);white-space:nowrap;
-  display:flex;align-items:center;justify-content:center;gap:4px;
-  box-shadow:0 4px 14px rgba(0,0,0,.35);
-}
-.dockbtn:active{transform:scale(.96)}
-
-/* 시그니처: 마이크 버튼 */
+/* 시그니처: 마이크 버튼 — 목록 패널 위 오른쪽에 떠 있음 */
 #micbtn{
-  width:76px;height:76px;min-width:76px;border-radius:50%;
+  position:fixed;right:14px;bottom:calc(var(--lp-h) + env(safe-area-inset-bottom) + 12px);z-index:31;
+  width:68px;height:68px;min-width:68px;border-radius:50%;
   background:radial-gradient(circle at 35% 30%, #FFC94D, var(--amber) 55%, var(--amber-deep));
   color:#241800;font-size:30px;
   display:flex;align-items:center;justify-content:center;
   box-shadow:0 6px 22px rgba(255,176,32,.45), inset 0 -3px 6px rgba(0,0,0,.18);
-  position:relative;transition:transform .12s;
+  transition:transform .12s, bottom .2s;
 }
 #micbtn:active{transform:scale(.93)}
 #micbtn.listening{background:radial-gradient(circle at 35% 30%, #FF8A8A, var(--red) 55%, #C23A3A);
@@ -201,8 +154,8 @@ input,textarea{font-family:inherit}
 
 /* 음성 인식 라이브 텍스트 */
 #transcript{
-  position:fixed;left:50%;bottom:calc(var(--dock-h) + env(safe-area-inset-bottom) + 26px);
-  transform:translateX(-50%);z-index:21;max-width:86vw;
+  position:fixed;left:50%;bottom:calc(var(--lp-h) + env(safe-area-inset-bottom) + 92px);
+  transform:translateX(-50%);z-index:32;max-width:86vw;
   background:var(--panel2);border:1px solid var(--line);border-radius:999px;
   padding:10px 20px;font-size:16px;font-weight:600;
   box-shadow:0 8px 24px rgba(0,0,0,.5);
@@ -291,13 +244,22 @@ input,textarea{font-family:inherit}
 .act.nav{color:var(--blue)}
 .act.del{color:var(--red);flex:0 0 58px}
 
-/* 목록 시트 */
-#list .items{max-height:52vh;overflow-y:auto;padding:4px 10px 14px;overscroll-behavior:contain}
+/* 목록 줄 */
 .item{
-  display:flex;align-items:center;gap:12px;padding:13px 10px;
+  display:flex;align-items:center;gap:10px;padding:6px 6px;height:46px;
   border-bottom:1px solid var(--line);border-radius:10px;
 }
 .item:active{background:var(--panel2)}
+.item.sel{background:rgba(92,168,255,.12);box-shadow:inset 0 0 0 1px rgba(92,168,255,.45)}
+.item .btns{display:flex;gap:6px;flex:0 0 auto}
+.sb{
+  width:38px;height:34px;border-radius:9px;border:1px solid var(--line);background:var(--panel2);
+  font-size:15px;display:flex;align-items:center;justify-content:center;
+}
+.sb:active{transform:scale(.93)}
+.sb.ok{color:var(--green);border-color:rgba(61,214,140,.4)}
+.item.done .sb.ok{background:var(--green);color:#0B2418;border-color:transparent}
+.sb.nav{color:var(--blue);border-color:rgba(92,168,255,.35)}
 .badge{
   width:32px;height:32px;min-width:32px;border-radius:50%;
   background:var(--amber);color:#241800;font-weight:800;font-size:14px;
@@ -305,12 +267,10 @@ input,textarea{font-family:inherit}
 }
 .item.done .badge{background:var(--green);color:#0B2418}
 .item .txt{flex:1;min-width:0}
-.item .a{font-size:14.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.item .a{font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .item.done .a{color:var(--dim);text-decoration:line-through}
 .item .m{font-size:12px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.item .chk{font-size:20px;padding:6px}
 .empty{padding:36px 0;text-align:center;color:var(--dim);font-size:14px}
-#list .foot{display:flex;gap:8px;padding:8px 18px 16px}
 
 /* 직접 입력 시트 */
 #manual .body{padding:6px 18px 18px}
@@ -384,34 +344,25 @@ input,textarea{font-family:inherit}
   <button class="iconbtn" id="btnSetup" title="설정">⚙️</button>
 </div>
 
-<!-- 회전 컨트롤: ↻15° / 각도배지(누르면 리셋) / ↺15° -->
-<div id="rotctl">
-  <button class="rbtn" id="btnRotR" title="시계방향 15°">↻</button>
-  <button id="angleBadge" title="북쪽으로 리셋">🧭 <span id="angleTxt">0°</span></button>
-  <button class="rbtn" id="btnRotL" title="반시계방향 15°">↺</button>
-</div>
-
 <div id="navchip"></div>
 
 <div id="transcript"></div>
 <div id="toast"></div>
 
-<div id="dock">
-  <button class="dockbtn" id="btnManual">⌨️ 입력</button>
-  <button class="dockbtn" id="btnPhoto" title="송장 사진으로 주소 추가">📷 사진</button>
-  <button id="micbtn" title="음성으로 주소 추가">🎤</button>
-  <button class="dockbtn" id="btnList">📋 목록</button>
-</div>
-<!-- 사진: 촬영은 한 장씩 누적(최대 5장), 앨범은 여러 장 한 번에 -->
-<input type="file" id="photoCam" accept="image/*" capture="environment" hidden>
-<input type="file" id="photoLib" accept="image/*" multiple hidden>
-<div id="shotbar">
-  <span class="cnt" id="shotCnt">1장</span>
-  <button class="zb add" id="shotMore">📷 더 찍기</button>
-  <button class="zb save" id="shotGo">✓ 인식 시작</button>
-  <button class="zb" id="shotCancel">✕</button>
-</div>
+<!-- 마이크: 항상 떠 있음 (목록 패널 위 오른쪽) -->
+<button id="micbtn" title="음성으로 주소 추가">🎤</button>
 
+<!-- 배송 목록 패널: 지도를 가리지 않는 고정 패널 (4줄 높이, 손잡이 줄을 누르면 접힘) -->
+<div id="listpanel">
+  <div class="lp-head" id="lpHead">
+    <span class="chev" id="lpChev">▾</span>
+    <b>배송 목록</b><span class="sub" id="lCount"></span>
+    <span class="spacer"></span>
+    <button class="lp-btn" id="btnManual" title="주소 직접 입력">⌨️ 입력</button>
+    <button class="lp-btn" id="lClearDone" title="완료건 정리">🧹</button>
+  </div>
+  <div class="items" id="lItems"></div>
+</div>
 <div id="dim"></div>
 
 <!-- 설정 잠금 비밀번호 -->
@@ -444,43 +395,6 @@ input,textarea{font-family:inherit}
   </div>
 </div>
 
-<!-- 목록 시트 -->
-<div class="sheet" id="list">
-  <div class="grip"></div>
-  <div class="sheet-head"><h2>배송 목록</h2><span class="sub" id="lCount"></span></div>
-  <div class="items" id="lItems"></div>
-  <div class="foot">
-    <button class="act" id="lClearDone">완료건 정리</button>
-    <button class="act del" style="flex:1" id="lClearAll">전체 삭제</button>
-  </div>
-</div>
-
-<!-- 콕 찍기 조준점 -->
-<div id="cross">
-  <svg viewBox="0 0 64 64" aria-hidden="true">
-    <circle class="ring" cx="32" cy="32" r="17"/>
-    <path class="tick" d="M32 6v9M32 49v9M6 32h9M49 32h9"/>
-    <circle class="dot" cx="32" cy="32" r="3.2"/>
-  </svg>
-</div>
-
-<!-- 지도 콕 찍기 툴바 -->
-<div id="pickbar">
-  <button class="zb add" id="pAdd">📦 이 위치에 배송지 추가</button>
-  <button class="zb" id="pClose">✕ 완료</button>
-</div>
-
-<!-- 사진 선택 시트 -->
-<div class="sheet" id="photo">
-  <div class="grip"></div>
-  <div class="sheet-head"><h2>송장 사진으로 추가</h2><span class="sub">한 번에 최대 5장</span></div>
-  <div class="body">
-    <div class="row"><button class="act primary" id="phCam">📷 카메라로 촬영</button></div>
-    <div class="row" style="margin-top:8px"><button class="act" id="phLib">🖼 앨범에서 선택</button></div>
-    <p class="hint">촬영 후 [더 찍기]로 이어서 찍을 수 있어요. 5장이 되면 자동으로 인식을 시작합니다.</p>
-  </div>
-</div>
-
 <!-- 직접 입력 시트 -->
 <div class="sheet" id="manual">
   <div class="grip"></div>
@@ -488,7 +402,6 @@ input,textarea{font-family:inherit}
   <div class="body">
     <input id="mInput" placeholder="예) 역삼동 123-45 / 테헤란로 152" enterkeyhint="done">
     <div class="row"><button class="act primary" id="mAdd">지도에 추가</button></div>
-    <div class="row" style="margin-top:8px"><button class="act" id="mPick">🎯 지도에서 콕 찍어 추가</button></div>
   </div>
 </div>
 
@@ -511,6 +424,9 @@ input,textarea{font-family:inherit}
   </div>
   <div class="setuprow">
     <button class="act" id="sGemTest">🤖 Gemini 연결 테스트</button>
+  </div>
+  <div class="setuprow">
+    <button class="act del" id="lClearAll">🗑 배송지 전체 삭제 (새 하루 시작)</button>
   </div>
   <div class="help">
     <b>🗺 네이버 지도 Client ID</b><br>
@@ -760,7 +676,8 @@ function fitAll(){
   const pts=items.map(i=>LL(i.lat,i.lng));
   const b=new naver.maps.LatLngBounds(pts[0],pts[0]);
   pts.forEach(pt=>b.extend(pt));
-  map.fitBounds(b,{top:60,right:30,bottom:120,left:30});
+  const lp=$('listpanel').offsetHeight||0;
+  map.fitBounds(b,{top:70,right:30,bottom:lp+90,left:30});
 }
 $('btnFit').onclick=fitAll;
 
@@ -920,41 +837,6 @@ async function recognizePhotos(files){
     photoBusy=false; tr.className='';
   }
 }
-const isImageFile=f=>/^image\//.test(f.type)||/\.(heic|heif|jpe?g|png|webp)$/i.test(f.name);
-$('btnPhoto').onclick=()=>{
-  if(!localStorage.getItem(LS_GEM)){toast('⚙️ 설정에서 Gemini API 키를 먼저 넣어주세요','err');return}
-  if(photoBusy){toast('사진 인식 중이에요…');return}
-  openSheet('photo');
-};
-/* 앨범: 여러 장 한 번에 */
-$('phLib').onclick=()=>{closeSheets(); $('photoLib').value=''; $('photoLib').click()};
-$('photoLib').onchange=e=>{
-  let files=[...e.target.files].filter(isImageFile);
-  if(!files.length)return;
-  if(files.length>MAX_PHOTOS){toast('한 번에 최대 '+MAX_PHOTOS+'장 — 앞의 '+MAX_PHOTOS+'장만 인식해요');files=files.slice(0,MAX_PHOTOS)}
-  recognizePhotos(files);
-};
-/* 카메라: 한 장씩 찍어 모았다가 [인식 시작] 또는 5장 채우면 자동 인식 */
-let shots=[];
-$('phCam').onclick=()=>{closeSheets(); shots=[]; $('photoCam').value=''; $('photoCam').click()};
-$('photoCam').onchange=e=>{
-  const f=e.target.files[0];
-  if(!f||!isImageFile(f))return;
-  shots.push(f);
-  $('shotCnt').textContent=shots.length+'장';
-  $('shotbar').classList.add('show');
-  if(navigator.vibrate)navigator.vibrate(25);
-  if(shots.length>=MAX_PHOTOS){toast(MAX_PHOTOS+'장 모두 찍었어요 — 인식 시작');startShots()}
-};
-$('shotMore').onclick=()=>{$('photoCam').value=''; $('photoCam').click()};
-$('shotGo').onclick=startShots;
-$('shotCancel').onclick=()=>{shots=[]; $('shotbar').classList.remove('show')};
-function startShots(){
-  const files=shots.slice(); shots=[];
-  $('shotbar').classList.remove('show');
-  if(files.length)recognizePhotos(files);
-}
-
 /* ───────── 음성 인식 ───────── */
 /* 인식 엔진은 한 번 말한 주소도 "양재"/"대로"/"323" 처럼 조각으로 주고, 기기에 따라
    똑같은 말을 여러 번 되돌려 주기도 한다(핀이 4개씩 찍히던 원인).
@@ -1062,7 +944,7 @@ function openSheet(id){
   $(id).classList.add('open');
 }
 function closeSheets(){
-  ['detail','list','manual','photo'].forEach(i=>$(i).classList.remove('open'));
+  ['detail','manual'].forEach(i=>$(i).classList.remove('open'));
   $('dim').classList.remove('show');
   if(selectedId){const it=items.find(i=>i.id===selectedId);selectedId=null;if(it)refreshPin(it)}
 }
@@ -1175,7 +1057,28 @@ function renumber(){
 }
 
 /* ───────── 목록 ───────── */
-$('btnList').onclick=()=>{renderList();openSheet('list')};
+/* 패널 접기/펼치기 — 상태 저장, 마이크·음성 텍스트 위치용 --lp-h 갱신 */
+const LS_LP='malpin.lpcol';
+function setPanelCollapsed(c){
+  $('listpanel').classList.toggle('collapsed',c);
+  localStorage.setItem(LS_LP,c?'1':'0');
+  requestAnimationFrame(()=>{
+    document.documentElement.style.setProperty('--lp-h',$('listpanel').offsetHeight+'px');
+  });
+}
+$('lpHead').onclick=e=>{ if(e.target.closest('button'))return; setPanelCollapsed(!$('listpanel').classList.contains('collapsed')); };
+setPanelCollapsed(localStorage.getItem(LS_LP)==='1');
+addEventListener('resize',()=>document.documentElement.style.setProperty('--lp-h',$('listpanel').offsetHeight+'px'));
+
+/* 목록 줄을 누르면: 그 핀으로 이동 + 핀 강조 + 말풍선에 주소 */
+let focusId=null;
+function focusItem(id){
+  const it=items.find(i=>i.id===id); if(!it)return;
+  focusId=id; manualLblId=id; syncLabel();
+  map.panTo(LL(it.lat,it.lng));
+  document.querySelectorAll('#lItems .item').forEach(d=>d.classList.toggle('sel',d.dataset.id===id));
+  if(navigator.vibrate)navigator.vibrate(15);
+}
 function listCountLabel(){
   const done=items.filter(i=>i.done).length;
   $('lCount').textContent=items.length?done+' / '+items.length+' 완료':'';
@@ -1188,23 +1091,23 @@ function renderList(){
   const sorted=[...items].sort((a,b)=>a.seq-b.seq);
   sorted.forEach(it=>{
     const d=document.createElement('div');
-    d.className='item'+(it.done?' done':'');
+    d.className='item'+(it.done?' done':'')+(it.id===focusId?' sel':'');
+    d.dataset.id=it.id;
     d.innerHTML='<div class="badge">'+it.seq+'</div>'+
       '<div class="txt"><div class="a"></div>'+(it.memo?'<div class="m"></div>':'')+'</div>'+
-      '<button class="chk">'+(it.done?'✅':'⬜')+'</button>';
-    d.querySelector('.a').textContent=it.addr;
+      '<div class="btns"><button class="sb ok" title="배송완료">✓</button><button class="sb nav" title="내비 안내">🚗</button></div>';
+    d.querySelector('.a').textContent=shortAddr(it.addr)||it.addr;
     if(it.memo)d.querySelector('.m').textContent='📝 '+it.memo;
-    d.querySelector('.txt').onclick=()=>{openDetail(it.id)};
-    d.querySelector('.badge').onclick=()=>{openDetail(it.id)};
-    d.querySelector('.chk').onclick=e=>{
+    d.querySelector('.txt').onclick=()=>focusItem(it.id);
+    d.querySelector('.badge').onclick=e=>{e.stopPropagation();openDetail(it.id)};   /* 번호 = 상세 카드 (메모·삭제) */
+    d.querySelector('.sb.ok').onclick=e=>{
       e.stopPropagation();
       it.done=!it.done; save(); refreshPin(it); updateCounts();
-      // 목록 전체를 다시 그리지 않고 누른 줄만 갱신 — 순서·스크롤 그대로
-      d.className='item'+(it.done?' done':'');
-      e.currentTarget.textContent=it.done?'✅':'⬜';
+      d.className='item'+(it.done?' done':'')+(it.id===focusId?' sel':'');
       listCountLabel();
       if(navigator.vibrate)navigator.vibrate(30);
     };
+    d.querySelector('.sb.nav').onclick=e=>{ e.stopPropagation(); navTo(it); };
     box.appendChild(d);
   });
 }
@@ -1213,13 +1116,14 @@ $('lClearDone').onclick=()=>{
   if(!n){toast('완료된 건이 없어요');return}
   if(!confirm('완료된 '+n+'건을 목록에서 정리할까요?'))return;
   items.filter(i=>i.done).forEach(i=>{const o=overlays[i.id];if(o){o.ov.setMap(null);delete overlays[i.id]}});
-  items=items.filter(i=>!i.done); renumber(); save(); updateCounts(); renderList();
+  items=items.filter(i=>!i.done); renumber(); save(); updateCounts();
 };
 $('lClearAll').onclick=()=>{
   if(!items.length)return;
   if(!confirm('전체 '+items.length+'건을 모두 삭제할까요?\n(새로운 하루 시작 시 사용)'))return;
   Object.values(overlays).forEach(o=>o.ov.setMap(null));
-  overlays={}; items=[]; seq=1; save(); updateCounts(); renderList();
+  overlays={}; items=[]; seq=1; focusId=null; save(); updateCounts();
+  $('setup').classList.remove('show');
   toast('초기화 완료 — 새 배송 시작!','ok');
 };
 
@@ -1382,11 +1286,6 @@ function applyMapRotation(){
   fitWrapForRotation(rotated);
   wrap.style.transform='translate(-50%,-50%) rotate('+mapAngle+'deg)';
   applyAllPinsCounterRotate();
-  // 각도 배지 갱신
-  const badge=$('angleBadge'), txt=$('angleTxt');
-  const shown=((Math.round(mapAngle)%360)+360)%360;
-  txt.textContent=shown+'°';
-  badge.classList.toggle('show', rotated);
 }
 /* 회전 시 지도 컨테이너를 "화면 대각선 × 대각선" 정사각형으로 키운다.
    - 172% 같은 고정 배율은 세로로 긴 화면을 90° 돌릴 때 모서리가 비어 보인다.
@@ -1431,96 +1330,11 @@ function resetRotation(){
   if(navigator.vibrate)navigator.vibrate([20,30,20]);
   toast('북쪽으로 정렬');
 }
-/* ↻ = 지도를 시계방향으로 보이게 → 래퍼는 -각도, ↺ = +각도 */
-$('btnRotR').onclick=()=>rotateBy(-ROT_STEP);
-$('btnRotL').onclick=()=>rotateBy(+ROT_STEP);
-$('angleBadge').onclick=resetRotation;
-
-
-/* ═══════════ 두 손가락으로 지도 돌리기 (자유 회전, -180°~180°) ═══════════ */
-/* 두 손가락을 지도에 얹고 비틀면 손가락이 만드는 선의 각도 변화만큼 지도가 돈다.
-   첫 움직임을 보고 "비틀기(회전)"인지 "벌리기(확대)"인지 한 번만 판정한다.
-   확대로 판정되면 이벤트를 그대로 흘려보내 카카오맵 핀치 줌이 살아 있게 한다. */
-const TWIST_DEG=8, PINCH_PX=26;
-let twistMode=null;   // null=판정 전, 'rot'=회전 중, 'zoom'=핀치에 양보
-let twistStart=0, twistBase=0, twistDist0=0;
-
-function touchPairAngle(t){
-  return Math.atan2(t[1].clientY-t[0].clientY, t[1].clientX-t[0].clientX)*180/Math.PI;
-}
-function touchPairDist(t){
-  return Math.hypot(t[1].clientX-t[0].clientX, t[1].clientY-t[0].clientY);
-}
-function twistBegin(e){
-  if(e.touches.length!==2){twistMode=null;return}
-  twistMode=null;                       // 아직 판정 전 — 카카오맵도 touchstart를 받게 둔다
-  twistStart=touchPairAngle(e.touches);
-  twistDist0=touchPairDist(e.touches);
-  twistBase=mapAngle;
-}
-function twistMove(e){
-  if(e.touches.length!==2 || twistMode==='zoom')return;
-  let d=normAngle(touchPairAngle(e.touches)-twistStart);
-  if(!twistMode){
-    if(Math.abs(d)>=TWIST_DEG){
-      twistMode='rot';
-      $('mapwrap').classList.add('dragging');
-    }else if(Math.abs(touchPairDist(e.touches)-twistDist0)>=PINCH_PX){
-      twistMode='zoom';                 // 확대/축소 제스처 — 카카오맵에 맡긴다
-      return;
-    }else return;
-  }
-  mapAngle=normAngle(twistBase+d);
-  applyMapRotation();
-  e.preventDefault(); e.stopImmediatePropagation();
-}
-function twistEnd(){
-  if(twistMode==='rot'){
-    $('mapwrap').classList.remove('dragging');
-    if(navigator.vibrate)navigator.vibrate(15);
-  }
-  twistMode=null;
-}
-{
-  const m=$('map');
-  m.addEventListener('touchstart',twistBegin,{passive:false,capture:true});
-  m.addEventListener('touchmove',twistMove,{passive:false,capture:true});
-  m.addEventListener('touchend',twistEnd,{capture:true});
-  m.addEventListener('touchcancel',twistEnd,{capture:true});
-}
-
-
-/* ───────── 지도 콕 찍어 배송지 추가 ───────── */
-let picking=false;
-$('mPick').onclick=()=>{closeSheets();startPick()};
-function startPick(){
-  if(picking)return;
-  picking=true;
-  $('pickbar').classList.add('show'); $('cross').classList.add('show');
-  toast('지도를 움직여 조준점을 배송지 건물에 맞추고 [추가]를 누르세요');
-}
-$('pAdd').onclick=()=>{
-  if(!geocoder)return;
-  const c=map.getCenter();
-  geocoder.coord2Address(c.lng(),c.lat(),(res,status)=>{
-    let addr='지도 지정 위치';
-    if(status===kakao.maps.services.Status.OK && res.length){
-      const r=res[0];
-      addr=(r.road_address&&r.road_address.address_name)
-        ||(r.address&&r.address.address_name)||addr;
-    }
-    commit('지도에서 지정',addr,c.lat(),c.lng());
-  });
-};
-$('pClose').onclick=endPick;
-function endPick(){
-  picking=false;
-  $('pickbar').classList.remove('show'); $('cross').classList.remove('show');
-}
-
 function updateCounts(){
   $('cntPending').textContent=items.filter(i=>!i.done).length;
   $('cntDone').textContent=items.filter(i=>i.done).length;
+  if(focusId&&!items.some(i=>i.id===focusId)) focusId=null;
+  renderList();
   if(typeof updateNavchip==='function'&&myPos)updateNavchip();
   else syncLabel();
 }
