@@ -262,9 +262,8 @@ input,textarea{font-family:inherit}
 #shotview .cap{font-size:13px;color:var(--dim);text-align:center;margin:10px 0 12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #shotview .row{display:flex;gap:8px}
 /* 선택된 줄: 다시 누르면 사진 안내 */
-.item.sel .a::after{content:"  📷 다시 누르면 사진 → 완료";font-size:11px;font-weight:600;color:var(--blue);opacity:.9}
+.item.sel .a::after{content:"  📷 다시 누르면 사진";font-size:11px;font-weight:600;color:var(--blue);opacity:.9}
 .item.sel.done .a::after{content:""}
-.item .cam{font-size:12px;margin-left:4px}
 /* 목록 줄 */
 .item{
   display:flex;align-items:center;gap:10px;padding:6px 6px;height:46px;
@@ -1190,7 +1189,6 @@ function renderList(){
       '<div class="txt"><div class="a"></div>'+(it.memo?'<div class="m"></div>':'')+'</div>'+
       '<div class="btns"><button class="sb ok" title="배송완료">✓</button><button class="sb nav" title="내비 안내">🚗</button></div>';
     d.querySelector('.a').textContent=shortAddr(it.addr)||it.addr;
-    if(it.photo){ const c=document.createElement('span'); c.className='cam'; c.textContent='📷'; d.querySelector('.a').appendChild(c); }
     if(it.memo)d.querySelector('.m').textContent='📝 '+it.memo;
     d.querySelector('.txt').onclick=()=>focusItem(it.id);
     d.querySelector('.badge').onclick=e=>{e.stopPropagation();openDetail(it.id)};   /* 번호 = 상세 카드 (메모·삭제) */
