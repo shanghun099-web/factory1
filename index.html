@@ -678,7 +678,7 @@ function addOverlay(it){
   /* 말풍선형: 중심(13,13) 반지름 11 의 원이 그대로 보이고, 아래쪽에서 짧은 꼬리가 갈라져 (13,39)로 뾰족하게 */
   el.innerHTML='<svg viewBox="0 0 26 40" aria-hidden="true"><path d="M5.64 21.17A11 11 0 1 1 20.36 21.17L13 39Z"/></svg><b>'+it.seq+'</b>';
   const lbl=document.createElement('div'); lbl.className='lbl'; lbl.textContent=shortAddr(it.addr); el.appendChild(lbl);
-  el.onclick=e=>{e.stopPropagation();openDetail(it.id)};
+  el.onclick=e=>{e.stopPropagation();focusItem(it.id,true)};   /* 핀 탭 = 목록 줄 탭과 동일 (카드는 번호 배지에서) */
   /* HTML 마커 — 핀 뾰족한 끝(13,40)이 좌표에 닿도록 anchor 지정 */
   const ov=new naver.maps.Marker({
     position:LL(it.lat,it.lng), map,
@@ -1186,12 +1186,14 @@ $('doneCam').onchange=async e=>{
 
 /* 목록 줄을 누르면: 그 핀으로 이동 + 핀 강조 + 말풍선에 주소. 이미 선택된 줄을 다시 누르면 완료 사진 촬영 */
 let focusId=null;
-function focusItem(id){
+function focusItem(id,fromPin){
   const it=items.find(i=>i.id===id); if(!it)return;
-  if(focusId===id&&!it.done){ openDoneCam(id); return; }
+  if(!fromPin&&focusId===id&&!it.done){ openDoneCam(id); return; }   /* 핀에서는 사진 촬영으로 안 넘어감 */
   focusId=id; manualLblId=id; syncLabel();
   map.panTo(LL(it.lat,it.lng));
-  document.querySelectorAll('#lItems .item').forEach(d=>d.classList.toggle('sel',d.dataset.id===id));
+  let row=null;
+  document.querySelectorAll('#lItems .item').forEach(d=>{ const on=d.dataset.id===id; d.classList.toggle('sel',on); if(on)row=d; });
+  if(row&&fromPin) row.scrollIntoView({block:'nearest',behavior:'smooth'});   /* 핀에서 왔으면 목록에서 그 줄이 보이게 */
   if(navigator.vibrate)navigator.vibrate(15);
 }
 function listCountLabel(){
