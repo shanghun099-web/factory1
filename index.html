@@ -855,7 +855,7 @@ async function recognizePhotos(files){
    똑같은 말을 여러 번 되돌려 주기도 한다(핀이 4개씩 찍히던 원인).
    그래서 ① 조각을 모아 두고 ② 말이 VOICE_WAIT 동안 멈춘 뒤 ③ 한 건으로만 등록한다.
    같은 글자가 반복되는 조각과, 방금 등록한 것과 같은 주소는 버린다. */
-const VOICE_WAIT=2200;   // 말이 멈춘 뒤 등록까지 기다리는 시간(ms) — 늘리면 더 느긋해짐
+const VOICE_WAIT=1000;   // 세션이 안 끝나고 조각만 올 때의 예비 대기(ms). 보통은 세션 종료 즉시 등록된다
 const DUP_WINDOW=12000;  // 이 시간 안에 같은 주소가 또 인식되면 무시(ms)
 const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
 let micOn=false;                 // 사용자가 켠 상태 (인식 세션은 그 안에서 자동 재시작)
@@ -930,7 +930,7 @@ function startRec(){
   };
   rec.onend=()=>{
     if(!micOn){voiceFlush();return}
-    if(voiceBuf.trim()){ voiceHold(); return; }     // 말이 끝남 → 잠시 뒤 등록하고 마이크가 꺼진다
+    if(voiceBuf.trim()){ voiceFlush(); return; }    // 말이 끝남 → 기다리지 않고 바로 등록, 마이크는 꺼진다
     setTimeout(()=>{ if(micOn) startRec() },250);   // 아직 아무 말도 없으면 계속 듣기
   };
   try{rec.start()}catch(err){micOff()}
