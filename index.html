@@ -95,6 +95,16 @@ input,textarea{font-family:inherit}
 @keyframes mepulse{from{transform:scale(.6);opacity:1}to{transform:scale(1.6);opacity:0}}
 @media (prefers-reduced-motion: reduce){.me::after{animation:none}}
 
+/* 나침반 배지 — 상단 바 아래 오른쪽 */
+#angleBadge{
+  position:fixed;right:12px;top:calc(env(safe-area-inset-top) + 66px);z-index:19;
+  min-width:52px;height:34px;padding:0 10px;border-radius:999px;
+  background:var(--panel);border:1px solid var(--line);
+  display:none;align-items:center;justify-content:center;gap:4px;
+  font-size:13px;font-weight:800;font-variant-numeric:tabular-nums;
+  box-shadow:0 4px 14px rgba(0,0,0,.4);color:var(--amber);
+}
+#angleBadge.show{display:flex}
 /* 가까운 배송지 거리 칩 */
 #navchip{
   position:fixed;left:50%;transform:translateX(-50%);
@@ -343,6 +353,9 @@ input,textarea{font-family:inherit}
   <button class="iconbtn" id="btnFit" title="전체 보기">⛶</button>
   <button class="iconbtn" id="btnSetup" title="설정">⚙️</button>
 </div>
+
+<!-- 나침반 배지: 두 손가락으로 지도를 돌렸을 때만 나타남 — 누르면 북쪽으로 정렬 -->
+<button id="angleBadge" title="북쪽으로 정렬">🧭 <span id="angleTxt">0°</span></button>
 
 <div id="navchip"></div>
 
@@ -1286,6 +1299,9 @@ function applyMapRotation(){
   fitWrapForRotation(rotated);
   wrap.style.transform='translate(-50%,-50%) rotate('+mapAngle+'deg)';
   applyAllPinsCounterRotate();
+  const badge=$('angleBadge'), txt=$('angleTxt');
+  txt.textContent=(((Math.round(mapAngle)%360)+360)%360)+'°';
+  badge.classList.toggle('show', rotated);
 }
 /* 회전 시 지도 컨테이너를 "화면 대각선 × 대각선" 정사각형으로 키운다.
    - 172% 같은 고정 배율은 세로로 긴 화면을 90° 돌릴 때 모서리가 비어 보인다.
@@ -1330,6 +1346,59 @@ function resetRotation(){
   if(navigator.vibrate)navigator.vibrate([20,30,20]);
   toast('북쪽으로 정렬');
 }
+/* ═══════════ 두 손가락으로 지도 돌리기 (자유 회전, -180°~180°) ═══════════ */
+/* 두 손가락을 지도에 얹고 비틀면 손가락이 만드는 선의 각도 변화만큼 지도가 돈다.
+   첫 움직임을 보고 "비틀기(회전)"인지 "벌리기(확대)"인지 한 번만 판정한다.
+   확대로 판정되면 이벤트를 그대로 흘려보내 네이버 지도 핀치 줌이 살아 있게 한다. */
+const TWIST_DEG=8, PINCH_PX=26;
+let twistMode=null;   // null=판정 전, 'rot'=회전 중, 'zoom'=핀치에 양보
+let twistStart=0, twistBase=0, twistDist0=0;
+
+function touchPairAngle(t){
+  return Math.atan2(t[1].clientY-t[0].clientY, t[1].clientX-t[0].clientX)*180/Math.PI;
+}
+function touchPairDist(t){
+  return Math.hypot(t[1].clientX-t[0].clientX, t[1].clientY-t[0].clientY);
+}
+function twistBegin(e){
+  if(e.touches.length!==2){twistMode=null;return}
+  twistMode=null;                       // 아직 판정 전 — 네이버 지도도 touchstart를 받게 둔다
+  twistStart=touchPairAngle(e.touches);
+  twistDist0=touchPairDist(e.touches);
+  twistBase=mapAngle;
+}
+function twistMove(e){
+  if(e.touches.length!==2 || twistMode==='zoom')return;
+  let d=normAngle(touchPairAngle(e.touches)-twistStart);
+  if(!twistMode){
+    if(Math.abs(d)>=TWIST_DEG){
+      twistMode='rot';
+      $('mapwrap').classList.add('dragging');
+    }else if(Math.abs(touchPairDist(e.touches)-twistDist0)>=PINCH_PX){
+      twistMode='zoom';                 // 확대/축소 제스처 — 네이버 지도에 맡긴다
+      return;
+    }else return;
+  }
+  mapAngle=normAngle(twistBase+d);
+  applyMapRotation();
+  e.preventDefault(); e.stopImmediatePropagation();
+}
+function twistEnd(){
+  if(twistMode==='rot'){
+    $('mapwrap').classList.remove('dragging');
+    if(navigator.vibrate)navigator.vibrate(15);
+  }
+  twistMode=null;
+}
+{
+  const m=$('map');
+  m.addEventListener('touchstart',twistBegin,{passive:false,capture:true});
+  m.addEventListener('touchmove',twistMove,{passive:false,capture:true});
+  m.addEventListener('touchend',twistEnd,{capture:true});
+  m.addEventListener('touchcancel',twistEnd,{capture:true});
+}
+$('angleBadge').onclick=resetRotation;
+
 function updateCounts(){
   $('cntPending').textContent=items.filter(i=>!i.done).length;
   $('cntDone').textContent=items.filter(i=>i.done).length;
