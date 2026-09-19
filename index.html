@@ -222,6 +222,8 @@ input,textarea{font-family:inherit}
 #toast.ok{border-color:rgba(61,214,140,.5)}
 #toast.err{border-color:rgba(255,107,107,.5)}
 
+/* 네이버 지도 HTML 마커 안에서 말풍선(.lbl)이 잘리지 않도록 마커 상자의 overflow 를 풀어 둔다 */
+#map div:has(> .pin), #map div:has(> .me){overflow:visible !important;}
 /* ── 마커: 갸름한 물방울형 핀 (SVG). 뾰족한 끝이 좌표에 닿는다 ── */
 .pin{
   position:relative;width:26px;height:40px;
@@ -493,8 +495,10 @@ input,textarea{font-family:inherit}
 <div id="setup">
   <div class="logo">📍</div>
   <h1>말핀</h1>
-  <p>말하면 지도에 핀이 찍히는 배송 도우미.<br>시작하려면 카카오 JavaScript 키가 필요해요.</p>
-  <label>카카오 JavaScript 키</label>
+  <p>말하면 지도에 핀이 찍히는 배송 도우미.<br>지도는 네이버, 주소 검색은 카카오 키를 써요.</p>
+  <label>네이버 지도 Client ID <span class="opt">— 지도 화면용</span></label>
+  <input id="sNav" placeholder="네이버 클라우드 플랫폼 Maps Client ID" autocomplete="off">
+  <label>카카오 JavaScript 키 <span class="opt">— 주소·건물명 검색용</span></label>
   <input id="sKey" placeholder="예) 1a2b3c4d5e6f..." autocomplete="off">
   <label>Gemini API 키 <span class="opt">— 📷 사진으로 주소 인식용 (선택)</span></label>
   <input id="sGem" placeholder="AIza… (안 쓰면 비워두세요)" autocomplete="off">
@@ -508,7 +512,13 @@ input,textarea{font-family:inherit}
     <button class="act" id="sGemTest">🤖 Gemini 연결 테스트</button>
   </div>
   <div class="help">
-    <b>키 발급 방법</b><br>
+    <b>🗺 네이버 지도 Client ID</b><br>
+    1. ncloud.com(네이버 클라우드 플랫폼) 가입 → 콘솔<br>
+    2. Services → <b>Maps</b> → Application 등록 (Web Dynamic Map 체크)<br>
+    3. Web 서비스 URL에 이 앱 주소 등록 (예: https://아이디.github.io)<br>
+    4. 발급된 <b>Client ID</b> 복사<br>
+    <br>
+    <b>🔍 카카오 키 (주소 검색)</b><br>
     1. developers.kakao.com → 내 애플리케이션 → 앱 추가<br>
     2. 앱 키 중 <b>JavaScript 키</b> 복사<br>
     3. 플랫폼 → Web → 이 앱을 올린 도메인 등록<br>
@@ -523,9 +533,9 @@ input,textarea{font-family:inherit}
 
 <script>
 /* ───────── 상태 ───────── */
-const LS_KEY='malpin.items', LS_API='malpin.apikey', LS_SEQ='malpin.seq';
+const LS_KEY='malpin.items', LS_API='malpin.apikey', LS_SEQ='malpin.seq', LS_NAV='malpin.naverkey';
 let items=[], seq=1, map=null, geocoder=null, places=null;
-let overlays={}; // id -> CustomOverlay
+let overlays={}; // id -> {ov: naver.maps.Marker, el}
 let selectedId=null, listening=false, rec=null;
 
 const $=id=>document.getElementById(id);
@@ -542,37 +552,70 @@ function toast(msg,type=''){
   clearTimeout(toastT); toastT=setTimeout(()=>t.className='',2600);
 }
 
-/* ───────── SDK 로드 ───────── */
-/* 남에게 이 파일을 나눠 줄 때 아래에 JS 키를 넣어 두면 받는 사람은 키 입력 없이 바로 쓴다.
-   (JS 키는 브라우저가 카카오 서버로 보내는 값이라 완전히 감출 수는 없다) */
-const BUILT_IN_KEY='';
+/* ───────── SDK 로드 ─────────
+   지도 화면은 네이버 지도(NCP Maps), 주소·건물명 검색과 좌표→주소는 카카오 services 라이브러리를 쓴다.
+   남에게 이 파일을 나눠 줄 때 아래에 키를 넣어 두면 받는 사람은 키 입력 없이 바로 쓴다.
+   (둘 다 브라우저가 서버로 보내는 값이라 완전히 감출 수는 없다) */
+const BUILT_IN_KEY='';       // 카카오 JavaScript 키
+const BUILT_IN_NAVER='';     // 네이버 지도 Client ID
 function boot(){
   load();
   const key=localStorage.getItem(LS_API)||BUILT_IN_KEY;
-  if(!key){ $('setup').classList.add('show'); return; }
-  loadSDK(key);
+  const nav=localStorage.getItem(LS_NAV)||BUILT_IN_NAVER;
+  if(!key||!nav){ $('setup').classList.add('show'); return; }
+  loadSDK(key,nav);
 }
-function loadSDK(key){
+/* 네이버 지도 인증 실패 콜백 (SDK 가 전역 이름으로 부른다) — 새 키 이름(ncpKeyId)으로 실패하면 옛 이름(ncpClientId)으로 한 번 더 */
+let naverTriedLegacy=false, naverKeyPending='';
+window.navermap_authFailure=function(){
+  if(!naverTriedLegacy&&naverKeyPending){ naverTriedLegacy=true; loadNaver(naverKeyPending,true); return; }
+  localStorage.removeItem(LS_NAV);
+  $('setup').classList.add('show');
+  toast('네이버 지도 인증 실패 — Client ID 와 서비스 URL 등록을 확인해주세요','err');
+};
+function loadNaver(nav,legacy){
+  naverKeyPending=nav;
   const s=document.createElement('script');
-  s.src='https://dapi.kakao.com/v2/maps/sdk.js?appkey='+encodeURIComponent(key)+'&libraries=services&autoload=false';
-  s.onload=()=>kakao.maps.load(initMap);
+  s.src='https://oapi.map.naver.com/openapi/v3/maps.js?'+(legacy?'ncpClientId':'ncpKeyId')+'='+encodeURIComponent(nav);
+  s.onload=()=>{ if(window.naver&&naver.maps&&!map) initMap(); };
   s.onerror=()=>{
-    localStorage.removeItem(LS_API);
+    localStorage.removeItem(LS_NAV);
     $('setup').classList.add('show');
-    toast('키 로드 실패 — 키와 도메인 등록을 확인해주세요','err');
+    toast('네이버 지도 로드 실패 — 네트워크나 Client ID 를 확인해주세요','err');
   };
   document.head.appendChild(s);
 }
+function loadKakaoServices(key){
+  const s=document.createElement('script');
+  s.src='https://dapi.kakao.com/v2/maps/sdk.js?appkey='+encodeURIComponent(key)+'&libraries=services&autoload=false';
+  s.onload=()=>kakao.maps.load(()=>{
+    geocoder=new kakao.maps.services.Geocoder();
+    places=new kakao.maps.services.Places();
+  });
+  s.onerror=()=>{
+    localStorage.removeItem(LS_API);
+    $('setup').classList.add('show');
+    toast('카카오 키 로드 실패 — 키와 도메인 등록을 확인해주세요','err');
+  };
+  document.head.appendChild(s);
+}
+function loadSDK(key,nav){
+  loadKakaoServices(key);
+  loadNaver(nav,false);
+}
 $('sGo').onclick=()=>{
   const k=$('sKey').value.trim();
-  if(!k){toast('카카오 키를 입력해주세요','err');return}
+  const n=$('sNav').value.trim();
+  if(!n){toast('네이버 지도 Client ID 를 입력해주세요','err');return}
+  if(!k){toast('카카오 키를 입력해주세요 (주소 검색용)','err');return}
   const g=$('sGem').value.trim();
   if(g)localStorage.setItem(LS_GEM,g); else localStorage.removeItem(LS_GEM);
-  const same=map && k===localStorage.getItem(LS_API);
-  localStorage.setItem(LS_API,k);
+  const sameK=k===localStorage.getItem(LS_API), sameN=map && n===localStorage.getItem(LS_NAV);
+  localStorage.setItem(LS_API,k); localStorage.setItem(LS_NAV,n);
   $('setup').classList.remove('show');
-  if(same){toast('설정 저장됨','ok');return}   // 카카오 키 그대로면 지도를 다시 만들지 않는다
-  loadSDK(k);
+  if(sameK&&sameN){toast('설정 저장됨','ok');return}
+  if(!sameN){ toast('지도 키가 바뀌어 다시 불러옵니다'); location.reload(); return; }   // 지도 SDK 는 다시 끼울 수 없어 새로고침
+  loadKakaoServices(k);
 };
 /* ───────── 설정 잠금 (비밀번호) ─────────
    비밀번호를 걸어 두면 ⚙️ 설정 화면(= API 키 확인·변경)을 열 때 물어본다.
@@ -608,8 +651,9 @@ $('lockPw').onkeydown=e=>{ if(e.key==='Enter')$('lockOk').click() };
 
 function openSetup(){
   $('sKey').value=localStorage.getItem(LS_API)||'';
+  $('sNav').value=localStorage.getItem(LS_NAV)||'';
   $('sGem').value=localStorage.getItem(LS_GEM)||'';
-  $('sKey').type='password'; $('sGem').type='password';   // 기본은 가려 두고 [👁 키 보기]로 확인
+  $('sKey').type='password'; $('sNav').type='password'; $('sGem').type='password';   // 기본은 가려 두고 [👁 키 보기]로 확인
   $('sEye').textContent='👁 키 보기';
   const has=!!localStorage.getItem(LS_PIN);
   $('sPinSet').textContent=has?'🔒 비밀번호 변경':'🔒 비밀번호 설정';
@@ -627,7 +671,7 @@ $('btnSetup').onclick=()=>{
 };
 $('sEye').onclick=()=>{
   const show=$('sKey').type==='password';
-  $('sKey').type=$('sGem').type=show?'text':'password';
+  $('sKey').type=$('sNav').type=$('sGem').type=show?'text':'password';
   $('sEye').textContent=show?'🙈 가리기':'👁 키 보기';
 };
 $('sPinSet').onclick=()=>{
@@ -649,24 +693,25 @@ $('sPinOff').onclick=()=>{
 };
 
 /* ───────── 지도 ───────── */
+/* 좌표 도우미 — 지도 SDK 의 LatLng 객체 (naver: .lat()/.lng()) */
+function LL(lat,lng){ return new naver.maps.LatLng(lat,lng); }
 function initMap(){
-  map=new kakao.maps.Map($('map'),{
-    center:new kakao.maps.LatLng(37.4979,127.0276), // 강남역 기본
-    level:5, draggable:true, scrollwheel:true
+  map=new naver.maps.Map($('map'),{
+    center:LL(37.4979,127.0276), // 강남역 기본
+    zoom:15, minZoom:7,
+    draggable:true, scrollWheel:true, pinchZoom:true, keyboardShortcuts:false,
+    zoomControl:true, zoomControlOptions:{position:naver.maps.Position.RIGHT_CENTER, style:naver.maps.ZoomControlStyle.SMALL},
+    mapDataControl:false, logoControlOptions:{position:naver.maps.Position.BOTTOM_LEFT}
   });
-  map.setDraggable(true); map.setZoomable(true);
-  map.addControl(new kakao.maps.ZoomControl(), kakao.maps.ControlPosition.RIGHT);
-  geocoder=new kakao.maps.services.Geocoder();
-  places=new kakao.maps.services.Places();
   if(IS_MOBILE)ensureKakaoJs();     // 내비 호출은 탭한 순간 바로 되도록 미리 준비
   bindDragPause();
-  kakao.maps.event.addListener(map,'click',()=>{ if(manualLblId){manualLblId=null;syncLabel()} });
+  naver.maps.Event.addListener(map,'click',()=>{ if(manualLblId){manualLblId=null;syncLabel()} });
   items.forEach(addOverlay);
   updateCounts();
   if(items.length) fitAll();
   else if(navigator.geolocation){
     navigator.geolocation.getCurrentPosition(p=>{
-      map.setCenter(new kakao.maps.LatLng(p.coords.latitude,p.coords.longitude));
+      map.setCenter(LL(p.coords.latitude,p.coords.longitude));
     },()=>{},{timeout:4000});
   }
 }
@@ -689,11 +734,12 @@ function addOverlay(it){
   el.innerHTML='<svg viewBox="0 0 26 40" aria-hidden="true"><path d="M5.64 21.17A11 11 0 1 1 20.36 21.17L13 39Z"/></svg><b>'+it.seq+'</b>';
   const lbl=document.createElement('div'); lbl.className='lbl'; lbl.textContent=shortAddr(it.addr); el.appendChild(lbl);
   el.onclick=e=>{e.stopPropagation();openDetail(it.id)};
-  const ov=new kakao.maps.CustomOverlay({
-    position:new kakao.maps.LatLng(it.lat,it.lng),
-    content:el, yAnchor:1, clickable:true
+  /* HTML 마커 — 핀 뾰족한 끝(13,40)이 좌표에 닿도록 anchor 지정 */
+  const ov=new naver.maps.Marker({
+    position:LL(it.lat,it.lng), map,
+    icon:{content:el, anchor:new naver.maps.Point(13,40)},
+    clickable:true, zIndex:0
   });
-  ov.setMap(map);
   overlays[it.id]={ov,el};
   applyPinCounterRotate(el); // 현재 회전각 반영해 핀 세우기
 }
@@ -716,9 +762,10 @@ function syncLabel(){
 }
 function fitAll(){
   if(!items.length){toast('등록된 배송지가 없어요');return}
-  const b=new kakao.maps.LatLngBounds();
-  items.forEach(i=>b.extend(new kakao.maps.LatLng(i.lat,i.lng)));
-  map.setBounds(b,60,30,120,30);
+  const pts=items.map(i=>LL(i.lat,i.lng));
+  const b=new naver.maps.LatLngBounds(pts[0],pts[0]);
+  pts.forEach(pt=>b.extend(pt));
+  map.fitBounds(b,{top:60,right:30,bottom:120,left:30});
 }
 $('btnFit').onclick=fitAll;
 
@@ -752,7 +799,7 @@ function commit(spoken,resolved,lat,lng,memo){
   const it={id:Date.now()+''+Math.random().toString(36).slice(2,6),
     seq:seq++, addr:resolved, spoken, memo:memo||'', lat, lng, done:false, ts:Date.now()};
   items.push(it); save(); addOverlay(it); updateCounts();
-  map.panTo(new kakao.maps.LatLng(lat,lng));
+  map.panTo(LL(lat,lng));
   toast('#'+it.seq+' 추가 — '+resolved,'ok');
   if(navigator.vibrate)navigator.vibrate(40);
   return it;
@@ -1038,7 +1085,7 @@ function openDetail(id){
   $('dMeta').textContent=(it.spoken&&it.spoken!==it.addr?'인식: "'+it.spoken+'" · ':'')+new Date(it.ts).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'})+' 등록';
   $('dMemo').value=it.memo||'';
   syncDoneBtn(it);
-  map.panTo(new kakao.maps.LatLng(it.lat,it.lng));
+  map.panTo(LL(it.lat,it.lng));
 }
 function syncDoneBtn(it){
   const b=$('dDone');
@@ -1249,12 +1296,13 @@ function stopTrack(){
 }
 function onPos(p){
   const first=!myPos;
-  myPos=new kakao.maps.LatLng(p.coords.latitude,p.coords.longitude);
+  myPos=LL(p.coords.latitude,p.coords.longitude);
   if(first){ clearTimeout(locWaitTimer); toast('내 위치로 이동 — 강아지 핀이 내 위치예요','ok'); }
   if(!myOv){
     myEl=document.createElement('div'); myEl.className='me'; myEl.innerHTML='<div class="me-img"></div>';
-    myOv=new kakao.maps.CustomOverlay({position:myPos,content:myEl,xAnchor:.527,yAnchor:.762,zIndex:5});
-    myOv.setMap(map);
+    /* 강아지 핀 끝점(가로 52.7%·세로 76.2%)이 내 위치 — .me 는 높이 48px, 가로 48×116/144 */
+    const mw=48*116/144, mh=48;
+    myOv=new naver.maps.Marker({position:myPos, map, icon:{content:myEl, anchor:new naver.maps.Point(mw*0.527, mh*0.762)}, zIndex:5, clickable:false});
   }else myOv.setPosition(myPos);
   updateMeMotion(p.coords);
   if(follow)map.panTo(myPos);
@@ -1293,13 +1341,13 @@ function posErr(e){
 }
 /* 지도를 직접 움직이면 따라가기 일시 해제 (📍 다시 누르면 재개) */
 function bindDragPause(){
-  kakao.maps.event.addListener(map,'dragstart',()=>{follow=false});
+  naver.maps.Event.addListener(map,'dragstart',()=>{follow=false});
 }
 /* 두 지점 거리(m) */
 function distM(a,b){
   const R=6371000,rad=x=>x*Math.PI/180;
-  const dLat=rad(b.getLat()-a.getLat()),dLng=rad(b.getLng()-a.getLng());
-  const s=Math.sin(dLat/2)**2+Math.cos(rad(a.getLat()))*Math.cos(rad(b.getLat()))*Math.sin(dLng/2)**2;
+  const dLat=rad(b.lat()-a.lat()),dLng=rad(b.lng()-a.lng());
+  const s=Math.sin(dLat/2)**2+Math.cos(rad(a.lat()))*Math.cos(rad(b.lat()))*Math.sin(dLng/2)**2;
   return 2*R*Math.asin(Math.sqrt(s));
 }
 function fmtDist(m){return m<1000?Math.round(m)+'m':(m/1000).toFixed(1)+'km'}
@@ -1312,7 +1360,7 @@ function updateNavchip(){
   if(!pending.length){chip.classList.remove('show');chipTarget=null;syncLabel();return}
   let best=null,bd=Infinity;
   pending.forEach(i=>{
-    const d=distM(myPos,new kakao.maps.LatLng(i.lat,i.lng));
+    const d=distM(myPos,LL(i.lat,i.lng));
     if(d<bd){bd=d;best=i}
   });
   chipTarget=best.id;
@@ -1356,7 +1404,7 @@ function fitWrapForRotation(rotated){
   wrap.style.width=want; wrap.style.height=want;
   if(map){
     const c=map.getCenter();
-    map.relayout();          // 컨테이너 크기 변경을 지도에 알림 → 새 영역 타일 로드
+    if(map.autoResize) map.autoResize(); else naver.maps.Event.trigger(map,'resize');   // 컨테이너 크기 변경을 지도에 알림
     map.setCenter(c);        // 중심 유지
   }
 }
@@ -1459,14 +1507,14 @@ function startPick(){
 $('pAdd').onclick=()=>{
   if(!geocoder)return;
   const c=map.getCenter();
-  geocoder.coord2Address(c.getLng(),c.getLat(),(res,status)=>{
+  geocoder.coord2Address(c.lng(),c.lat(),(res,status)=>{
     let addr='지도 지정 위치';
     if(status===kakao.maps.services.Status.OK && res.length){
       const r=res[0];
       addr=(r.road_address&&r.road_address.address_name)
         ||(r.address&&r.address.address_name)||addr;
     }
-    commit('지도에서 지정',addr,c.getLat(),c.getLng());
+    commit('지도에서 지정',addr,c.lat(),c.lng());
   });
 };
 $('pClose').onclick=endPick;
