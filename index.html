@@ -41,7 +41,8 @@ input,textarea{font-family:inherit}
 }
 /* 회전 중 크기는 JS가 화면 대각선 길이(px)로 직접 지정한다 — 어떤 각도에서도 화면을 덮는다 */
 #mapwrap.dragging{ transition:none; }     /* 손가락으로 돌리는 중엔 트랜지션 끔(끊김 방지) */
-#map{position:absolute;inset:0;background:#0E1116;touch-action:none}
+/* 네이버 SDK 가 컨테이너에 인라인 position:relative 를 넣으므로 !important 로 고정하고 크기도 명시 */
+#map{position:absolute !important;inset:0;width:100%;height:100%;background:#0E1116;touch-action:none}
 #map *{touch-action:none}
 .pin{transition:transform .22s cubic-bezier(.4,0,.2,1)}
 #mapwrap.dragging .pin{transition:none}
@@ -557,13 +558,15 @@ function toast(msg,type=''){
    남에게 이 파일을 나눠 줄 때 아래에 키를 넣어 두면 받는 사람은 키 입력 없이 바로 쓴다.
    (둘 다 브라우저가 서버로 보내는 값이라 완전히 감출 수는 없다) */
 const BUILT_IN_KEY='';       // 카카오 JavaScript 키
-const BUILT_IN_NAVER='';     // 네이버 지도 Client ID
+const BUILT_IN_NAVER='uq3a7ys806';     // 네이버 지도 Client ID (NCP Maps · shanghun099-web.github.io 도메인 전용 — 다른 사이트에선 동작하지 않음)
 function boot(){
   load();
   const key=localStorage.getItem(LS_API)||BUILT_IN_KEY;
   const nav=localStorage.getItem(LS_NAV)||BUILT_IN_NAVER;
-  if(!key||!nav){ $('setup').classList.add('show'); return; }
-  loadSDK(key,nav);
+  if(!nav){ $('setup').classList.add('show'); return; }   /* 지도 키는 필수 */
+  loadNaver(nav,false);
+  if(key) loadKakaoServices(key);                           /* 검색 키는 없어도 지도는 뜬다 */
+  else setTimeout(()=>toast('주소·건물명 검색을 쓰려면 설정에서 카카오 키를 넣어주세요'),1500);
 }
 /* 네이버 지도 인증 실패 콜백 (SDK 가 전역 이름으로 부른다) — 새 키 이름(ncpKeyId)으로 실패하면 옛 이름(ncpClientId)으로 한 번 더 */
 let naverTriedLegacy=false, naverKeyPending='';
@@ -592,30 +595,22 @@ function loadKakaoServices(key){
     geocoder=new kakao.maps.services.Geocoder();
     places=new kakao.maps.services.Places();
   });
-  s.onerror=()=>{
-    localStorage.removeItem(LS_API);
-    $('setup').classList.add('show');
-    toast('카카오 키 로드 실패 — 키와 도메인 등록을 확인해주세요','err');
-  };
+  s.onerror=()=>{ toast('카카오 검색 라이브러리를 못 불러왔어요 — 키·도메인 등록을 확인해주세요 (지도는 그대로 씁니다)','err'); };
   document.head.appendChild(s);
-}
-function loadSDK(key,nav){
-  loadKakaoServices(key);
-  loadNaver(nav,false);
 }
 $('sGo').onclick=()=>{
   const k=$('sKey').value.trim();
   const n=$('sNav').value.trim();
   if(!n){toast('네이버 지도 Client ID 를 입력해주세요','err');return}
-  if(!k){toast('카카오 키를 입력해주세요 (주소 검색용)','err');return}
   const g=$('sGem').value.trim();
   if(g)localStorage.setItem(LS_GEM,g); else localStorage.removeItem(LS_GEM);
   const sameK=k===localStorage.getItem(LS_API), sameN=map && n===localStorage.getItem(LS_NAV);
-  localStorage.setItem(LS_API,k); localStorage.setItem(LS_NAV,n);
+  if(k) localStorage.setItem(LS_API,k); else localStorage.removeItem(LS_API);
+  localStorage.setItem(LS_NAV,n);
   $('setup').classList.remove('show');
   if(sameK&&sameN){toast('설정 저장됨','ok');return}
   if(!sameN){ toast('지도 키가 바뀌어 다시 불러옵니다'); location.reload(); return; }   // 지도 SDK 는 다시 끼울 수 없어 새로고침
-  loadKakaoServices(k);
+  if(k&&!geocoder) loadKakaoServices(k);
 };
 /* ───────── 설정 잠금 (비밀번호) ─────────
    비밀번호를 걸어 두면 ⚙️ 설정 화면(= API 키 확인·변경)을 열 때 물어본다.
