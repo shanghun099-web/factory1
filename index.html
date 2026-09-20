@@ -1408,6 +1408,7 @@ function resetRotation(){
    확대로 판정되면 이벤트를 그대로 흘려보내 네이버 지도 핀치 줌이 살아 있게 한다. */
 const TWIST_DEG=8, PINCH_PX=26;
 let twistMode=null;   // null=판정 전, 'rot'=회전 중, 'zoom'=핀치에 양보
+let holdUntilUp=false; // 두 손가락 제스처 뒤 손가락을 전부 뗄 때까지 한 손가락 이동을 막는다
 let twistStart=0, twistBase=0, twistDist0=0;
 
 function touchPairAngle(t){
@@ -1434,6 +1435,7 @@ const PINCH_DAMP=0.85;   // 1 이면 손가락 그대로, 작을수록 천천히
 const MAP_OVER=0.25;     // #map 이 래퍼 밖으로 나가 있는 비율 (CSS left/top:-25% 와 같은 값)
 const SQ2=Math.SQRT2;
 let pinchScale=1, pinchOrigin=null, pinchAnchor=null, pinchDist0=1, pinchApplied=0, pinchSettling=false;
+let settleFinish=null, settleTimer=null;   /* 손을 뗀 뒤 스르륵 맞추는 중(.settle)일 때 취소용 */
 /* 화면 좌표 → #map 안 좌표 (래퍼가 회전돼 있어도, 지도 상자가 래퍼보다 커도 맞게) */
 function screenToMap(x,y){
   const wrap=$('mapwrap'), W=wrap.offsetWidth, H=wrap.offsetHeight;
@@ -1471,7 +1473,18 @@ function preloadTiles(z){
   if(tileSeen.size>3000) tileSeen.clear();
 }
 let preloadedFor=null;
+/* 스르륵 맞추는 도중 다시 손을 대면 즉시 끝낸다 — 안 그러면 새 핀치 중간에 이전 finish 가 들어와
+   transform·transformOrigin 을 지워 버려서, CSS 확대는 상자 중심·실제 줌은 손가락 기준으로 어긋나 지도가 튄다 */
+function cancelSettle(){
+  if(!pinchSettling)return;
+  const m=$('map');
+  if(settleFinish) m.removeEventListener('transitionend',settleFinish);
+  clearTimeout(settleTimer); settleFinish=null; settleTimer=null;
+  m.classList.remove('settle'); m.style.transform=''; m.style.transformOrigin='';
+  pinchSettling=false;
+}
 function pinchStart(t){
+  cancelSettle();
   const mx=(t[0].clientX+t[1].clientX)/2, my=(t[0].clientY+t[1].clientY)/2;
   pinchOrigin=screenToMap(mx,my); pinchScale=1; pinchApplied=0; pinchDist0=touchPairDist(t)||1; preloadedFor=null;
   /* 실제 줌의 기준점은 픽셀이 아니라 좌표(LatLng)로 넘겨야 한다 — zoomBy 에 Point 를 주면 무시되고 지도 중심 기준으로 줌돼서,
@@ -1499,17 +1512,22 @@ function pinchEnd(){
   const m=$('map'); pinchSettling=true;
   const finish=()=>{
     m.removeEventListener('transitionend',finish);
+    clearTimeout(settleTimer); settleFinish=null; settleTimer=null;
     m.classList.remove('settle');
     m.style.transform=''; m.style.transformOrigin='';
     pinchSettling=false;
   };
+  settleFinish=finish;
   if(Math.abs(pinchScale-1)<0.01){ finish(); return; }
   m.addEventListener('transitionend',finish);
   m.classList.add('settle');
-  requestAnimationFrame(()=>{ m.style.transform='scale(1)'; });
-  setTimeout(()=>{ if(pinchSettling) finish(); },320);   /* transitionend 가 안 오는 경우 대비 */
+  requestAnimationFrame(()=>{ if(pinchSettling&&settleFinish===finish) m.style.transform='scale(1)'; });
+  settleTimer=setTimeout(()=>{ if(pinchSettling) finish(); },320);   /* transitionend 가 안 오는 경우 대비 */
 }
 function twistMove(e){
+  /* 두 손가락 제스처를 하다 한 손가락만 남으면 네이버 지도가 그걸 드래그로 받아 — 막혀 있던 동안의 이동량을 한 번에 적용해 —
+     지도가 확 밀린다. 손가락을 전부 뗄 때까지는 한 손가락 이동을 흘려보내지 않는다 */
+  if(holdUntilUp&&e.touches.length<2){ e.preventDefault(); e.stopImmediatePropagation(); return; }
   if(e.touches.length!==2)return;
   if(twistMode==='zoom'){ pinchMove(e.touches); e.preventDefault(); e.stopImmediatePropagation(); return; }
   let d=normAngle(touchPairAngle(e.touches)-twistStart);
@@ -1528,7 +1546,9 @@ function twistMove(e){
   applyMapRotation();
   e.preventDefault(); e.stopImmediatePropagation();
 }
-function twistEnd(){
+function twistEnd(e){
+  if(twistMode) holdUntilUp=true;             // 회전/확대를 하던 중이었으면 남은 손가락은 무시
+  if(!e.touches||e.touches.length===0) holdUntilUp=false;
   if(twistMode==='rot'){
     $('mapwrap').classList.remove('dragging');
     if(navigator.vibrate)navigator.vibrate(15);
