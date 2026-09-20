@@ -246,16 +246,6 @@ input,textarea{font-family:inherit}
 .act.nav{color:var(--blue)}
 .act.del{color:var(--red);flex:0 0 58px}
 
-/* 완료 사진 미리보기 */
-#shotview{position:fixed;inset:0;z-index:95;background:rgba(0,0,0,.8);display:none;align-items:center;justify-content:center;padding:18px}
-#shotview.show{display:flex}
-#shotview .box{width:100%;max-width:420px;background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:12px;box-shadow:0 20px 50px rgba(0,0,0,.6)}
-#shotview img{display:block;width:100%;max-height:56vh;object-fit:contain;border-radius:12px;background:#000}
-#shotview .cap{font-size:13px;color:var(--dim);text-align:center;margin:10px 0 12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-#shotview .row{display:flex;gap:8px}
-/* 선택된 줄: 다시 누르면 사진 안내 */
-.item.sel .a::after{content:"  📷 다시 누르면 사진";font-size:11px;font-weight:600;color:var(--blue);opacity:.9}
-.item.sel.done .a::after{content:""}
 /* 목록 줄 */
 .item{
   display:flex;align-items:center;gap:10px;padding:6px 6px;height:46px;
@@ -363,21 +353,6 @@ input,textarea{font-family:inherit}
 <div id="transcript"></div>
 <div id="toast"></div>
 
-<!-- 배송완료 사진: 목록에서 선택된 줄을 한 번 더 누르면 카메라가 열린다 -->
-<input type="file" id="doneCam" accept="image/*" capture="environment" hidden>
-
-<!-- 완료 사진 미리보기: 직접 누르는 저장 버튼이어야 폰이 다운로드를 막지 않는다 -->
-<div id="shotview">
-  <div class="box">
-    <img id="shotImg" alt="배송완료 사진">
-    <div class="cap" id="shotCap"></div>
-    <div class="row">
-      <button class="act" id="shotClose">닫기</button>
-      <button class="act primary" id="shotSave">💾 갤러리에 저장</button>
-    </div>
-  </div>
-</div>
-
 <!-- 마이크: 항상 떠 있음 (목록 패널 위 오른쪽) -->
 <button id="micbtn" title="음성으로 주소 추가">🎤</button>
 
@@ -443,16 +418,11 @@ input,textarea{font-family:inherit}
   <input id="sNav" placeholder="비워두면 앱에 내장된 키 사용" autocomplete="off">
   <label>카카오 JavaScript 키 <span class="opt">— 주소·건물명 검색용</span></label>
   <input id="sKey" placeholder="예) 1a2b3c4d5e6f..." autocomplete="off">
-  <label>Gemini API 키 <span class="opt">— 📷 사진으로 주소 인식용 (선택)</span></label>
-  <input id="sGem" placeholder="AIza… (안 쓰면 비워두세요)" autocomplete="off">
   <button class="go" id="sGo">시작하기</button>
   <div class="setuprow">
     <button class="act" id="sEye">👁 키 보기</button>
     <button class="act" id="sPinSet">🔒 비밀번호 설정</button>
     <button class="act del" id="sPinOff" hidden>🔓 해제</button>
-  </div>
-  <div class="setuprow">
-    <button class="act" id="sGemTest">🤖 Gemini 연결 테스트</button>
   </div>
   <div class="help">
     <b>🗺 네이버 지도 Client ID</b><br>
@@ -466,11 +436,7 @@ input,textarea{font-family:inherit}
     2. 앱 키 중 <b>JavaScript 키</b> 복사<br>
     3. 플랫폼 → Web → 이 앱을 올린 도메인 등록<br>
     &nbsp;&nbsp;&nbsp;(예: https://아이디.github.io)<br>
-    4. 제품 설정 → <b>카카오맵 사용 설정 ON</b><br>
-    <br>
-    <b>📷 Gemini 키 (사진 인식)</b><br>
-    aistudio.google.com → <b>Get API key</b> → 키 만들기<br>
-    &nbsp;&nbsp;&nbsp;(이 키는 사용량이 과금될 수 있어요 — 공유 파일에 넣지 마세요)
+    4. 제품 설정 → <b>카카오맵 사용 설정 ON</b>
   </div>
 </div>
 
@@ -545,8 +511,6 @@ $('sGo').onclick=()=>{
   const nIn=$('sNav').value.trim();
   const n=nIn||BUILT_IN_NAVER;                       /* 비워두면 내장 키 */
   if(!n){toast('네이버 지도 Client ID 를 입력해주세요','err');return}
-  const g=$('sGem').value.trim();
-  if(g)localStorage.setItem(LS_GEM,g); else localStorage.removeItem(LS_GEM);
   const curN=localStorage.getItem(LS_NAV)||BUILT_IN_NAVER;
   const sameK=k===(localStorage.getItem(LS_API)||''), sameN=!map || n===curN;
   if(k) localStorage.setItem(LS_API,k); else localStorage.removeItem(LS_API);
@@ -592,8 +556,7 @@ $('lockPw').onkeydown=e=>{ if(e.key==='Enter')$('lockOk').click() };
 function openSetup(){
   $('sKey').value=localStorage.getItem(LS_API)||'';
   $('sNav').value=localStorage.getItem(LS_NAV)||'';
-  $('sGem').value=localStorage.getItem(LS_GEM)||'';
-  $('sKey').type='password'; $('sNav').type='password'; $('sGem').type='password';   // 기본은 가려 두고 [👁 키 보기]로 확인
+  $('sKey').type='password'; $('sNav').type='password';   // 기본은 가려 두고 [👁 키 보기]로 확인
   $('sEye').textContent='👁 키 보기';
   const has=!!localStorage.getItem(LS_PIN);
   $('sPinSet').textContent=has?'🔒 비밀번호 변경':'🔒 비밀번호 설정';
@@ -611,7 +574,7 @@ $('btnSetup').onclick=()=>{
 };
 $('sEye').onclick=()=>{
   const show=$('sKey').type==='password';
-  $('sKey').type=$('sNav').type=$('sGem').type=show?'text':'password';
+  $('sKey').type=$('sNav').type=show?'text':'password';
   $('sEye').textContent=show?'🙈 가리기':'👁 키 보기';
 };
 $('sPinSet').onclick=()=>{
@@ -763,126 +726,6 @@ function commit(spoken,resolved,lat,lng,memo){
   return it;
 }
 
-/* ───────── 사진(송장) → Gemini 주소 인식 → 핀 ─────────
-   사진 여러 장을 한 번의 요청으로 보내 사진별 수취인 주소를 JSON으로 받는다.
-   전송 전 긴 변 1280px JPEG 로 줄여 속도·비용을 아낀다. */
-const LS_GEM='malpin.gemini';
-const LS_GEMMODEL='malpin.gemini.model';
-/* 앞에서부터 순서대로 시도 — 키에 그 모델 권한이 없거나(404) 이름이 바뀌면 다음 것으로 넘어가고,
-   한 번 성공한 모델은 기억해 두고 다음부터 바로 쓴다 */
-const GEMINI_MODELS=['gemini-3.6-flash','gemini-3.5-flash','gemini-2.5-flash'];
-const MAX_PHOTOS=5;
-const PHOTO_PROMPT=
-  '당신은 택배 송장 판독기입니다. 첨부된 각 사진에서 "받는 분"(수취인) 주소를 찾아 JSON 배열로만 답하세요.\n'+
-  '- index: 사진 번호(1부터, 첨부 순서)\n'+
-  '- address: 도로명 주소 또는 지번 주소. 시/도 → 시/군/구 → 도로명(또는 동/리) → 건물번호(또는 지번)까지만. 동·호수·층 등 상세 위치와 우편번호는 넣지 마세요.\n'+
-  '- detail: 동·호수·층·공동현관 비밀번호 등 상세 위치. 없으면 빈 문자열.\n'+
-  '- 보내는 분(발송인) 주소는 무시하세요. 주소를 찾을 수 없으면 address를 빈 문자열로 두세요.\n'+
-  '- 사진마다 정확히 하나의 항목을, 사진 순서대로 만드세요.';
-
-function loadImg(file){
-  return new Promise((res,rej)=>{
-    const u=URL.createObjectURL(file); const im=new Image();
-    im.onload=()=>{URL.revokeObjectURL(u);res(im)};
-    im.onerror=()=>{URL.revokeObjectURL(u);rej(new Error('사진을 열 수 없어요'))};
-    im.src=u;
-  });
-}
-async function toJpegBase64(file,max=1280,q=.82){
-  const im=await loadImg(file);
-  const s=Math.min(1,max/Math.max(im.naturalWidth,im.naturalHeight));
-  const c=document.createElement('canvas');
-  c.width=Math.max(1,Math.round(im.naturalWidth*s)); c.height=Math.max(1,Math.round(im.naturalHeight*s));
-  c.getContext('2d').drawImage(im,0,0,c.width,c.height);
-  return c.toDataURL('image/jpeg',q).split(',')[1];
-}
-async function geminiAddresses(b64s){
-  const key=localStorage.getItem(LS_GEM);
-  const parts=[{text:PHOTO_PROMPT}];
-  b64s.forEach((b,i)=>{parts.push({text:'[사진 '+(i+1)+']'});parts.push({inline_data:{mime_type:'image/jpeg',data:b}})});
-  const body={
-    contents:[{role:'user',parts}],
-    generationConfig:{
-      temperature:0, responseMimeType:'application/json',
-      responseSchema:{type:'ARRAY',items:{type:'OBJECT',
-        properties:{index:{type:'INTEGER'},address:{type:'STRING'},detail:{type:'STRING'}},
-        required:['index','address','detail']}}
-    }
-  };
-  const j=await geminiCall(body);
-  const cand=(j.candidates||[])[0];
-  const txt=cand&&cand.content&&cand.content.parts?cand.content.parts.map(p=>p.text||'').join(''):'';
-  try{return JSON.parse(txt)}catch(e){throw new Error('인식 결과를 해석하지 못했어요')}
-}
-/* 모델을 순서대로 시도해 첫 성공 응답을 돌려준다. 성공한 모델은 기억(LS_GEMMODEL) */
-async function geminiCall(body){
-  const key=localStorage.getItem(LS_GEM);
-  if(!key)throw new Error('Gemini API 키가 없어요');
-  const pref=localStorage.getItem(LS_GEMMODEL);
-  const order=pref?[pref].concat(GEMINI_MODELS.filter(m=>m!==pref)):GEMINI_MODELS.slice();
-  let last='';
-  for(const m of order){
-    let r;
-    try{
-      r=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+m+':generateContent',{
-        method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':key},body:JSON.stringify(body)
-      });
-    }catch(e){throw new Error('네트워크 오류 — 인터넷 연결을 확인하세요')}
-    if(r.ok){ localStorage.setItem(LS_GEMMODEL,m); return await r.json(); }
-    let msg='HTTP '+r.status;
-    try{const j=await r.json(); if(j.error&&j.error.message)msg=j.error.message}catch(e){}
-    const modelProblem = r.status===404 || (r.status===400 && /model|not found|not supported|unsupported/i.test(msg));
-    if(modelProblem){ last=m+' → '+msg; if(pref===m)localStorage.removeItem(LS_GEMMODEL); continue; }
-    if(r.status===400||r.status===403)throw new Error('Gemini 키가 잘못됐거나 권한이 없어요 ('+msg+')');
-    if(r.status===429)throw new Error('Gemini 사용량 한도 초과 — 잠시 후 다시 시도하세요');
-    throw new Error(msg);
-  }
-  throw new Error('쓸 수 있는 Gemini 모델이 없어요 ('+last+')');
-}
-/* 설정 화면의 연결 테스트 — 글자만 보내 어떤 모델이 되는지 / 왜 안 되는지 바로 보여준다 */
-$('sGemTest').onclick=async()=>{
-  const g=$('sGem').value.trim();
-  if(!g){toast('Gemini 키를 먼저 입력하세요','err');return}
-  localStorage.setItem(LS_GEM,g); localStorage.removeItem(LS_GEMMODEL);
-  const b=$('sGemTest'); b.disabled=true; b.textContent='⏳ 테스트 중…';
-  try{
-    await geminiCall({contents:[{role:'user',parts:[{text:'OK 라고만 답하세요'}]}],generationConfig:{maxOutputTokens:5}});
-    toast('✅ 연결 성공 — 모델: '+localStorage.getItem(LS_GEMMODEL),'ok');
-  }catch(e){ toast('❌ '+e.message,'err'); }
-  b.disabled=false; b.textContent='🤖 Gemini 연결 테스트';
-};
-let photoBusy=false;
-async function recognizePhotos(files){
-  if(!geocoder){toast('지도가 아직 준비 중이에요','err');return}
-  photoBusy=true;
-  const tr=$('transcript');
-  tr.textContent='📷 사진 '+files.length+'장 준비 중…'; tr.className='show';
-  try{
-    const b64s=[];
-    for(const f of files)b64s.push(await toJpegBase64(f));
-    tr.textContent='🤖 주소 인식 중… ('+files.length+'장)';
-    const list=await geminiAddresses(b64s);
-    const arr=Array.isArray(list)?list:[];
-    let ok=0; const fail=[];
-    for(let i=0;i<files.length;i++){
-      const r=arr.find(x=>x&&x.index===i+1)||arr[i]||{};
-      const addr=typeof r.address==='string'?r.address.trim():'';
-      if(!addr){fail.push('사진 '+(i+1)+': 주소를 못 읽음');continue}
-      tr.textContent='📍 위치 찾는 중… ('+(i+1)+'/'+files.length+')';
-      const f=await resolveAddress(addr);
-      if(!f){fail.push('사진 '+(i+1)+': "'+addr+'" 위치 못 찾음');continue}
-      commit('📷 '+addr,f.name,f.lat,f.lng,typeof r.detail==='string'?r.detail.trim():'');
-      ok++;
-    }
-    if(ok>1)fitAll();
-    toast(ok+'건 추가'+(fail.length?' · '+fail.length+'건 실패':''),fail.length?'err':'ok');
-    if(fail.length)setTimeout(()=>toast(fail.join('  /  '),'err'),2700);
-  }catch(e){
-    toast('사진 인식 실패: '+e.message,'err');
-  }finally{
-    photoBusy=false; tr.className='';
-  }
-}
 /* ───────── 음성 인식 ───────── */
 /* 인식 엔진은 한 번 말한 주소도 "양재"/"대로"/"323" 처럼 조각으로 주고, 기기에 따라
    똑같은 말을 여러 번 되돌려 주기도 한다(핀이 4개씩 찍히던 원인).
@@ -1118,60 +961,10 @@ $('lpHead').onclick=e=>{ if(e.target.closest('button'))return; setPanelCollapsed
 setPanelCollapsed(localStorage.getItem(LS_LP)==='1');
 addEventListener('resize',()=>document.documentElement.style.setProperty('--lp-h',$('listpanel').offsetHeight+'px'));
 
-let camTarget=null;   // 카메라를 연 배송지 id
-function openDoneCam(id){
-  camTarget=id;
-  const inp=$('doneCam'); inp.value=''; inp.click();
-}
-/* 찍은 사진은 앱이 보관하지 않고 폰 갤러리로 보낸다.
-   웹앱은 갤러리에 직접 쓸 수 없어서 — 안드로이드: 다운로드(Downloads 폴더, 갤러리에 보임) / 아이폰: 공유 시트 → "이미지 저장" */
-const IS_IOS=/iPhone|iPad|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
-function photoName(it){
-  const d=new Date(), z=n=>String(n).padStart(2,'0');
-  return `배송완료_${d.getFullYear()}${z(d.getMonth()+1)}${z(d.getDate())}_${z(d.getHours())}${z(d.getMinutes())}_${it.seq}번_${shortAddr(it.addr)||''}`.replace(/[\/:*?"<>|]/g,'')+'.jpg';
-}
-async function saveToGallery(file,it){
-  const named=new File([file],photoName(it),{type:file.type||'image/jpeg'});
-  if(IS_IOS&&navigator.canShare&&navigator.canShare({files:[named]})){
-    try{ await navigator.share({files:[named]}); return 'share'; }catch(e){ return 'cancel'; }
-  }
-  const a=document.createElement('a'); a.href=URL.createObjectURL(named); a.download=named.name;
-  document.body.appendChild(a); a.click(); a.remove();
-  setTimeout(()=>URL.revokeObjectURL(a.href),5000);
-  return 'download';
-}
-let shotFile=null, shotItem=null, shotUrl=null;
-$('doneCam').onchange=e=>{
-  const f=e.target.files&&e.target.files[0]; const id=camTarget; camTarget=null;
-  if(!f||!id)return;
-  const it=items.find(i=>i.id===id); if(!it)return;
-  it.photo=true;
-  if(!it.done){ it.done=true; refreshPin(it); }
-  save(); updateCounts();
-  if(navigator.vibrate)navigator.vibrate([30,40,30]);
-  toast('#'+it.seq+' 배송완료 ✓','ok');
-  /* 미리보기 열기 — 저장은 사용자가 버튼을 눌러야 폰이 다운로드를 허용한다 */
-  shotFile=f; shotItem=it;
-  if(shotUrl)URL.revokeObjectURL(shotUrl);
-  shotUrl=URL.createObjectURL(f); $('shotImg').src=shotUrl;
-  $('shotCap').textContent='#'+it.seq+' '+(shortAddr(it.addr)||it.addr);
-  $('shotview').classList.add('show');
-};
-function closeShot(){ $('shotview').classList.remove('show'); if(shotUrl){URL.revokeObjectURL(shotUrl);shotUrl=null} shotFile=null; shotItem=null; }
-$('shotClose').onclick=closeShot;
-$('shotSave').onclick=async()=>{
-  if(!shotFile||!shotItem)return;
-  const how=await saveToGallery(shotFile,shotItem);
-  if(how==='download') toast('갤러리(다운로드 앨범)에 저장했어요','ok');
-  else if(how==='cancel'){ toast('저장이 취소됐어요'); return; }
-  closeShot();
-};
-
-/* 목록 줄을 누르면: 그 핀으로 이동 + 핀 강조 + 말풍선에 주소. 이미 선택된 줄을 다시 누르면 완료 사진 촬영 */
+/* 목록 줄을 누르면: 그 핀으로 이동 + 핀 강조 + 말풍선에 주소 (배송완료는 ✓ 버튼, 상세는 번호 배지) */
 let focusId=null;
 function focusItem(id,fromPin){
   const it=items.find(i=>i.id===id); if(!it)return;
-  if(!fromPin&&focusId===id&&!it.done){ openDoneCam(id); return; }   /* 핀에서는 사진 촬영으로 안 넘어감 */
   focusId=id; manualLblId=id; lblHidden=false; syncLabel();
   goToPin(it.lat,it.lng);
   let row=null;
