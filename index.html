@@ -706,25 +706,42 @@ function fitAll(){
   const b=new naver.maps.LatLngBounds(pts[0],pts[0]);
   pts.forEach(pt=>b.extend(pt));
   const lp=$('listpanel').offsetHeight||0;
+  follow=false;   // 전체 보기도 GPS 따라가기를 끈다 (안 그러면 곧바로 내 위치로 되돌아감)
   map.fitBounds(b,{top:70,right:30,bottom:lp+90,left:30});
 }
 $('btnFit').onclick=fitAll;
 
 /* ───────── 주소 → 핀 ───────── */
 /* 주소 문자열 → 좌표. 지번/도로명 검색 실패 시 키워드(건물명·상호) 검색으로 폴백. 못 찾으면 null */
+/* 검색 기준점: 내 위치가 있으면 내 위치, 없으면 지도 중심.
+   "일원로 12" 처럼 시·구를 빼고 말하면 전국에서 같은 이름이 여러 개 나오는데, 첫 번째를 그냥 쓰면 엉뚱한 도시로 핀이 찍힌다.
+   그래서 결과가 여러 개면 기준점에서 가장 가까운 것을 고르고, 상호 검색도 기준점 주변을 우선한다. */
+function searchRef(){ return myPos || (map ? map.getCenter() : null); }
+function nearestOf(list){
+  const ref=searchRef(); if(!ref || list.length<2) return list[0];
+  let best=list[0], bd=Infinity;
+  list.forEach(r=>{ const d=distM(ref,LL(parseFloat(r.y),parseFloat(r.x))); if(d<bd){bd=d;best=r} });
+  return best;
+}
 function resolveAddress(text){
   return new Promise(res=>{
     if(!geocoder)return res(null);
     const OK=kakao.maps.services.Status.OK;
     geocoder.addressSearch(text,(r,s)=>{
-      if(s===OK && r.length)return res({name:r[0].address_name||text,lat:parseFloat(r[0].y),lng:parseFloat(r[0].x)});
+      if(s===OK && r.length){ const b=nearestOf(r); return res({name:b.address_name||text,lat:parseFloat(b.y),lng:parseFloat(b.x)}); }
+      const ref=searchRef();
+      const opt=ref ? {location:new kakao.maps.LatLng(ref.lat(),ref.lng()), radius:20000} : {};
       places.keywordSearch(text,(r2,s2)=>{
-        if(s2===OK && r2.length)return res({name:r2[0].place_name+' ('+(r2[0].road_address_name||r2[0].address_name)+')',lat:parseFloat(r2[0].y),lng:parseFloat(r2[0].x)});
+        if(s2===OK && r2.length){ const b=nearestOf(r2); return res({name:b.place_name+' ('+(b.road_address_name||b.address_name)+')',lat:parseFloat(b.y),lng:parseFloat(b.x)}); }
         res(null);
-      });
+      },opt);
     });
   });
 }
+/* 핀 자리로 지도를 옮길 때 — GPS 따라가기(follow)를 끈다.
+   켜진 채로 두면 다음 위치 갱신(보통 1초 안)에 map.panTo(myPos) 가 다시 불려 핀으로 간 지도가 곧바로 내 위치로 돌아와 버린다.
+   다시 따라가게 하려면 📍 를 누르면 된다 (손으로 지도를 끌었을 때와 같은 규칙). */
+function goToPin(lat,lng){ follow=false; map.panTo(LL(lat,lng)); }
 async function addAddress(text){
   text=text.trim();
   if(!text)return;
@@ -740,7 +757,7 @@ function commit(spoken,resolved,lat,lng,memo){
   const it={id:Date.now()+''+Math.random().toString(36).slice(2,6),
     seq:seq++, addr:resolved, spoken, memo:memo||'', lat, lng, done:false, ts:Date.now()};
   items.push(it); save(); addOverlay(it); updateCounts();
-  map.panTo(LL(lat,lng));
+  goToPin(lat,lng);
   toast('#'+it.seq+' 추가 — '+resolved,'ok');
   if(navigator.vibrate)navigator.vibrate(40);
   return it;
@@ -993,7 +1010,7 @@ function openDetail(id){
   $('dMeta').textContent=(it.spoken&&it.spoken!==it.addr?'인식: "'+it.spoken+'" · ':'')+new Date(it.ts).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'})+' 등록';
   $('dMemo').value=it.memo||'';
   syncDoneBtn(it);
-  map.panTo(LL(it.lat,it.lng));
+  goToPin(it.lat,it.lng);
 }
 function syncDoneBtn(it){
   const b=$('dDone');
@@ -1156,7 +1173,7 @@ function focusItem(id,fromPin){
   const it=items.find(i=>i.id===id); if(!it)return;
   if(!fromPin&&focusId===id&&!it.done){ openDoneCam(id); return; }   /* 핀에서는 사진 촬영으로 안 넘어감 */
   focusId=id; manualLblId=id; lblHidden=false; syncLabel();
-  map.panTo(LL(it.lat,it.lng));
+  goToPin(it.lat,it.lng);
   let row=null;
   document.querySelectorAll('#lItems .item').forEach(d=>{ const on=d.dataset.id===id; d.classList.toggle('sel',on); if(on)row=d; });
   if(row&&fromPin) row.scrollIntoView({block:'nearest',behavior:'smooth'});   /* 핀에서 왔으면 목록에서 그 줄이 보이게 */
