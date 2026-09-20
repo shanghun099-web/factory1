@@ -663,14 +663,46 @@ function syncLabel(){
   const prev=lblId; lblId=next;
   [prev,next].forEach(id=>{const it=id&&items.find(i=>i.id===id); if(it)refreshPin(it)});
 }
+/* 전체 보기 — 모든 핀이 실제로 보이는 화면 영역(상단 바 아래 ~ 목록 패널 위) 안에 들어오게 줌·중심을 직접 계산한다.
+   네이버 fitBounds 를 안 쓰는 이유: #map 상자가 화면보다 크고(150%, 핀치 줌용) 회전까지 돼 있어
+   fitBounds 의 "지도 상자 기준" 여백으로는 화면 밖에 핀이 걸린다.
+   네이버 projection 의 offset 은 지도가 움직인 직후엔 기준이 어긋나 있어(idle 전) 쓰지 않고,
+   타일 좌표와 같은 웹 메르카토르 픽셀(줌 z 에서 세계 = 256·2^z px)로 직접 계산한다 — preloadTiles 와 같은 식. */
+function mercPx(lat,lng,z){
+  const n=256*Math.pow(2,z), la=lat*Math.PI/180;
+  return {x:(lng+180)/360*n, y:(1-Math.log(Math.tan(la)+1/Math.cos(la))/Math.PI)/2*n};
+}
+function mercLL(x,y,z){
+  const n=256*Math.pow(2,z);
+  return LL(Math.atan(Math.sinh(Math.PI*(1-2*y/n)))*180/Math.PI, x/n*360-180);
+}
 function fitAll(){
   if(!items.length){toast('등록된 배송지가 없어요');return}
-  const pts=items.map(i=>LL(i.lat,i.lng));
-  const b=new naver.maps.LatLngBounds(pts[0],pts[0]);
-  pts.forEach(pt=>b.extend(pt));
+  follow=false;   // GPS 따라가기를 끈다 (안 그러면 곧바로 내 위치로 되돌아감)
   const lp=$('listpanel').offsetHeight||0;
-  follow=false;   // 전체 보기도 GPS 따라가기를 끈다 (안 그러면 곧바로 내 위치로 되돌아감)
-  map.fitBounds(b,{top:70,right:30,bottom:lp+90,left:30});
+  const M={top:70,right:30,bottom:lp+90,left:30};
+  const vw=Math.max(60,innerWidth-M.left-M.right), vh=Math.max(60,innerHeight-M.top-M.bottom);
+  const vcx=M.left+vw/2, vcy=M.top+vh/2;                       // 보이는 영역의 중심 (화면 좌표)
+  const r=mapAngle*Math.PI/180, cos=Math.cos(r), sin=Math.sin(r);
+  /* 핀 → 최대 줌(21) 픽셀 → 화면 방향으로 회전 → 감싸는 사각형 */
+  const Z=21;
+  let x0=Infinity,y0=Infinity,x1=-Infinity,y1=-Infinity;
+  items.forEach(it=>{
+    const o=mercPx(it.lat,it.lng,Z);
+    const sx=o.x*cos-o.y*sin, sy=o.x*sin+o.y*cos;
+    if(sx<x0)x0=sx; if(sx>x1)x1=sx; if(sy<y0)y0=sy; if(sy>y1)y1=sy;
+  });
+  const bw=x1-x0, bh=y1-y0;
+  /* 줌: 사각형이 보이는 영역에 들어가는 가장 큰 정수 단계 (핀 하나면 17) */
+  let z;
+  if(bw<1&&bh<1) z=17;
+  else z=Math.max(7,Math.min(Z, Z+Math.floor(Math.log2(Math.min(vw/Math.max(bw,1), vh/Math.max(bh,1))))));
+  const k=Math.pow(2,z-Z);                                      // 줌 z 픽셀로 환산 배율
+  /* 사각형 중심(회전 좌표) → 화면 정중앙에서 보이는 영역 중심까지의 벡터를 빼서 → 지도 좌표로 되돌림 */
+  const mx=(x0+x1)/2*k + (innerWidth/2-vcx), my=(y0+y1)/2*k + (innerHeight/2-vcy);
+  const cx=mx*cos+my*sin, cy=-mx*sin+my*cos;
+  map.setZoom(z,false);
+  map.setCenter(mercLL(cx,cy,z));
 }
 $('btnFit').onclick=fitAll;
 
