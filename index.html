@@ -1433,7 +1433,7 @@ function twistBegin(e){
 const PINCH_DAMP=0.85;   // 1 이면 손가락 그대로, 작을수록 천천히
 const MAP_OVER=0.25;     // #map 이 래퍼 밖으로 나가 있는 비율 (CSS left/top:-25% 와 같은 값)
 const SQ2=Math.SQRT2;
-let pinchScale=1, pinchOrigin=null, pinchDist0=1, pinchApplied=0, pinchSettling=false;
+let pinchScale=1, pinchOrigin=null, pinchAnchor=null, pinchDist0=1, pinchApplied=0, pinchSettling=false;
 /* 화면 좌표 → #map 안 좌표 (래퍼가 회전돼 있어도, 지도 상자가 래퍼보다 커도 맞게) */
 function screenToMap(x,y){
   const wrap=$('mapwrap'), W=wrap.offsetWidth, H=wrap.offsetHeight;
@@ -1474,13 +1474,16 @@ let preloadedFor=null;
 function pinchStart(t){
   const mx=(t[0].clientX+t[1].clientX)/2, my=(t[0].clientY+t[1].clientY)/2;
   pinchOrigin=screenToMap(mx,my); pinchScale=1; pinchApplied=0; pinchDist0=touchPairDist(t)||1; preloadedFor=null;
+  /* 실제 줌의 기준점은 픽셀이 아니라 좌표(LatLng)로 넘겨야 한다 — zoomBy 에 Point 를 주면 무시되고 지도 중심 기준으로 줌돼서,
+     CSS 확대(손가락 기준)와 실제 줌(중심 기준)이 어긋나 손을 뗄 때 지도가 엉뚱한 곳으로 튄다 */
+  pinchAnchor=map.getProjection().fromOffsetToCoord(new naver.maps.Point(pinchOrigin.x,pinchOrigin.y));
   const m=$('map'); m.classList.remove('settle');
   m.style.transformOrigin=pinchOrigin.x+'px '+pinchOrigin.y+'px';
 }
 function pinchMove(t){
   const total=Math.pow(touchPairDist(t)/pinchDist0,PINCH_DAMP);   // 제스처 시작 대비 누적 배율
   let visual=total/Math.pow(2,pinchApplied);                       // 실제 줌 반영분을 뺀 화면 배율
-  const origin=new naver.maps.Point(pinchOrigin.x,pinchOrigin.y);
+  const origin=pinchAnchor;   // 손가락 가운데 지점의 좌표 — 줌 단계가 바뀌어도 이 지점은 화면에서 안 움직인다
   /* 방향이 정해지는 즉시 다음 단계 타일을 미리 받는다 (여유 시간 최대화) */
   const z=map.getZoom();
   if(visual>1.02&&preloadedFor!==z+1){ preloadedFor=z+1; preloadTiles(z+1); }
