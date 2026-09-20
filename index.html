@@ -41,6 +41,8 @@ input,textarea{font-family:inherit}
 }
 /* 회전 중 크기는 JS가 화면 대각선 길이(px)로 직접 지정한다 — 어떤 각도에서도 화면을 덮는다 */
 #mapwrap.dragging{ transition:none; }     /* 손가락으로 돌리는 중엔 트랜지션 끔(끊김 방지) */
+/* 핀치 줌: 손가락을 벌리는 동안은 지도 상자를 CSS 로만 키우고, 손을 떼면 .settle 로 스르륵 단계에 맞춘 뒤 실제 줌을 적용 */
+#map.settle{ transition:transform .2s cubic-bezier(.3,.8,.3,1); }
 /* 네이버 SDK 가 컨테이너에 인라인 position:relative 를 넣으므로 !important 로 고정하고 크기도 명시 */
 #map{position:absolute !important;inset:0;width:100%;height:100%;background:#0E1116;touch-action:none}
 #map *{touch-action:none}
@@ -105,17 +107,6 @@ input,textarea{font-family:inherit}
   box-shadow:0 4px 14px rgba(0,0,0,.4);color:var(--amber);
 }
 #angleBadge.show{display:flex}
-/* 가까운 배송지 거리 칩 */
-#navchip{
-  position:fixed;left:50%;transform:translateX(-50%);
-  top:calc(env(safe-area-inset-top) + 66px);z-index:19;
-  background:var(--panel);border:1px solid rgba(92,168,255,.45);border-radius:999px;
-  padding:8px 16px;font-size:14px;font-weight:700;
-  box-shadow:0 4px 14px rgba(0,0,0,.4);display:none;
-  align-items:center;gap:6px;white-space:nowrap;
-}
-#navchip.show{display:flex}
-#navchip b{color:var(--blue);font-variant-numeric:tabular-nums}
 
 /* ── 배송 목록 패널 — 화면 아래 고정, 지도를 어둡게 하지 않음. --lp-h 는 현재 패널 높이(JS 갱신) ── */
 :root{--lp-h:236px;}
@@ -367,7 +358,6 @@ input,textarea{font-family:inherit}
 <!-- 나침반 배지: 두 손가락으로 지도를 돌렸을 때만 나타남 — 누르면 북쪽으로 정렬 -->
 <button id="angleBadge" title="북쪽으로 정렬">🧭 <span id="angleTxt">0°</span></button>
 
-<div id="navchip"></div>
 
 <div id="transcript"></div>
 <div id="toast"></div>
@@ -648,7 +638,7 @@ function initMap(){
   map=new naver.maps.Map($('map'),{
     center:LL(37.4979,127.0276), // 강남역 기본
     zoom:15, minZoom:7,
-    draggable:true, scrollWheel:true, pinchZoom:true, keyboardShortcuts:false,
+    draggable:true, scrollWheel:true, pinchZoom:false, disableTwoFingerTapZoom:true, keyboardShortcuts:false,
     zoomControl:true, zoomControlOptions:{position:naver.maps.Position.RIGHT_CENTER, style:naver.maps.ZoomControlStyle.SMALL},
     mapDataControl:false, logoControlOptions:{position:naver.maps.Position.BOTTOM_LEFT}
   });
@@ -1274,7 +1264,6 @@ function stopTrack(){
   if(myOv){myOv.setMap(null);myOv=null;myEl=null}
   clearTimeout(meStillTimer); meMoving=false; meLean=0;
   myPos=null; $('btnLoc').classList.remove('on');
-  $('navchip').classList.remove('show');
 }
 function onPos(p){
   const first=!myPos;
@@ -1333,24 +1322,20 @@ function distM(a,b){
   return 2*R*Math.asin(Math.sqrt(s));
 }
 function fmtDist(m){return m<1000?Math.round(m)+'m':(m/1000).toFixed(1)+'km'}
-/* 가장 가까운 미배송지 표시 */
+/* 가장 가까운 미배송지 — 화면 표시는 없고, 말풍선의 기본 대상(손으로 고른 핀이 없을 때)으로만 쓴다 */
 let chipTarget=null;
 function updateNavchip(){
-  const chip=$('navchip');
-  if(!myPos){chip.classList.remove('show');chipTarget=null;syncLabel();return}
+  if(!myPos){chipTarget=null;syncLabel();return}
   const pending=items.filter(i=>!i.done);
-  if(!pending.length){chip.classList.remove('show');chipTarget=null;syncLabel();return}
+  if(!pending.length){chipTarget=null;syncLabel();return}
   let best=null,bd=Infinity;
   pending.forEach(i=>{
     const d=distM(myPos,LL(i.lat,i.lng));
     if(d<bd){bd=d;best=i}
   });
   chipTarget=best.id;
-  chip.innerHTML='🚚 가까운 배송지 <b>#'+best.seq+'</b>&nbsp;<b>'+fmtDist(bd)+'</b>';
-  chip.classList.add('show');
   syncLabel();
 }
-$('navchip').onclick=()=>{if(chipTarget)openDetail(chipTarget)};
 
 
 /* ═══════════ 15° 수동 지도 회전 ═══════════ */
@@ -1437,15 +1422,65 @@ function twistBegin(e){
   twistDist0=touchPairDist(e.touches);
   twistBase=mapAngle;
 }
+/* ── 핀치 줌 (앱이 직접) ──
+   네이버 지도는 줌을 정수 단계로만 받아서, 자체 핀치는 손을 떼는 순간 가까운 단계로 '탁' 튄다.
+   그래서 벌리는 동안은 지도 상자를 CSS 로 손가락의 PINCH_DAMP 비율만큼만(천천히) 키우고,
+   손을 떼면 0.2초 동안 가까운 단계 배율로 스르륵 맞춘 뒤 그 시점에 실제 줌을 바꾼다. */
+const PINCH_DAMP=0.75;   // 1 이면 손가락 그대로, 작을수록 천천히
+let pinchScale=1, pinchOrigin=null, pinchZoom0=0, pinchDist0=1, pinchSettling=false;
+/* 화면 좌표 → #map 안 좌표 (지도 래퍼가 회전·확대돼 있어도 맞게) */
+function screenToMap(x,y){
+  const wrap=$('mapwrap'), W=wrap.offsetWidth, H=wrap.offsetHeight;
+  const cx=innerWidth/2, cy=innerHeight/2, r=-mapAngle*Math.PI/180;
+  const dx=x-cx, dy=y-cy;
+  return {x:dx*Math.cos(r)-dy*Math.sin(r)+W/2, y:dx*Math.sin(r)+dy*Math.cos(r)+H/2};
+}
+function pinchStart(t){
+  const mx=(t[0].clientX+t[1].clientX)/2, my=(t[0].clientY+t[1].clientY)/2;
+  pinchOrigin=screenToMap(mx,my); pinchZoom0=map.getZoom(); pinchScale=1; pinchDist0=touchPairDist(t)||1;
+  const m=$('map'); m.classList.remove('settle');
+  m.style.transformOrigin=pinchOrigin.x+'px '+pinchOrigin.y+'px';
+}
+function pinchMove(t){
+  const raw=touchPairDist(t)/pinchDist0;
+  pinchScale=Math.pow(raw,PINCH_DAMP);
+  /* 줌 한계 밖으로는 더 안 커지게 */
+  const maxS=Math.pow(2,21-pinchZoom0), minS=Math.pow(2,7-pinchZoom0);
+  pinchScale=Math.min(maxS,Math.max(minS,pinchScale));
+  $('map').style.transform='scale('+pinchScale+')';
+}
+function pinchEnd(){
+  if(pinchSettling)return;
+  const steps=Math.max(7-pinchZoom0,Math.min(21-pinchZoom0,Math.round(Math.log2(pinchScale))));
+  const target=Math.pow(2,steps);
+  const m=$('map'); pinchSettling=true;
+  const finish=()=>{
+    m.removeEventListener('transitionend',finish);
+    m.classList.remove('settle');
+    if(steps!==0){
+      map.zoomBy(steps,new naver.maps.Point(pinchOrigin.x,pinchOrigin.y),false);   /* 손가락 중심을 고정한 채 실제 줌 */
+    }
+    m.style.transform=''; m.style.transformOrigin='';
+    pinchSettling=false;
+  };
+  if(Math.abs(pinchScale-target)<0.01){ finish(); return; }
+  m.addEventListener('transitionend',finish);
+  m.classList.add('settle');
+  requestAnimationFrame(()=>{ m.style.transform='scale('+target+')'; });
+  setTimeout(()=>{ if(pinchSettling) finish(); },320);   /* transitionend 가 안 오는 경우 대비 */
+}
 function twistMove(e){
-  if(e.touches.length!==2 || twistMode==='zoom')return;
+  if(e.touches.length!==2)return;
+  if(twistMode==='zoom'){ pinchMove(e.touches); e.preventDefault(); e.stopImmediatePropagation(); return; }
   let d=normAngle(touchPairAngle(e.touches)-twistStart);
   if(!twistMode){
     if(Math.abs(d)>=TWIST_DEG){
       twistMode='rot';
       $('mapwrap').classList.add('dragging');
     }else if(Math.abs(touchPairDist(e.touches)-twistDist0)>=PINCH_PX){
-      twistMode='zoom';                 // 확대/축소 제스처 — 네이버 지도에 맡긴다
+      twistMode='zoom';                 // 확대/축소 — 여기서부터 앱이 처리
+      pinchStart(e.touches); pinchMove(e.touches);
+      e.preventDefault(); e.stopImmediatePropagation();
       return;
     }else return;
   }
@@ -1457,6 +1492,8 @@ function twistEnd(){
   if(twistMode==='rot'){
     $('mapwrap').classList.remove('dragging');
     if(navigator.vibrate)navigator.vibrate(15);
+  }else if(twistMode==='zoom'){
+    pinchEnd();
   }
   twistMode=null;
 }
