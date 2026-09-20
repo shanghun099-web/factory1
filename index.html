@@ -644,7 +644,7 @@ function initMap(){
   });
   if(IS_MOBILE)ensureKakaoJs();     // 내비 호출은 탭한 순간 바로 되도록 미리 준비
   bindDragPause();
-  naver.maps.Event.addListener(map,'click',()=>{ if(manualLblId){manualLblId=null;syncLabel()} });
+  naver.maps.Event.addListener(map,'click',()=>{ manualLblId=null; lblHidden=true; syncLabel(); });   /* 지도 빈 곳 탭 → 풍선 숨김 */
   items.forEach(addOverlay);
   updateCounts();
   if(items.length) fitAll();
@@ -690,11 +690,11 @@ function refreshPin(it){
   applyPinCounterRotate(o.el);
 }
 /* 말풍선 대상: 손으로 고른 핀(manualLblId)이 있고 아직 미배송이면 그 핀, 아니면 가까운 배송지(chipTarget) */
-let lblId=null, manualLblId=null;
+let lblId=null, manualLblId=null, lblHidden=false;   /* lblHidden: 지도 빈 곳을 탭해 풍선을 숨긴 상태 (핀·목록을 다시 누르면 해제) */
 function syncLabel(){
   const m=manualLblId&&items.find(i=>i.id===manualLblId&&!i.done);
   if(!m)manualLblId=null;
-  const next=m?m.id:(chipTarget||null);
+  const next=lblHidden?null:(m?m.id:(chipTarget||null));
   if(next===lblId)return;
   const prev=lblId; lblId=next;
   [prev,next].forEach(id=>{const it=id&&items.find(i=>i.id===id); if(it)refreshPin(it)});
@@ -1154,7 +1154,7 @@ let focusId=null;
 function focusItem(id,fromPin){
   const it=items.find(i=>i.id===id); if(!it)return;
   if(!fromPin&&focusId===id&&!it.done){ openDoneCam(id); return; }   /* 핀에서는 사진 촬영으로 안 넘어감 */
-  focusId=id; manualLblId=id; syncLabel();
+  focusId=id; manualLblId=id; lblHidden=false; syncLabel();
   map.panTo(LL(it.lat,it.lng));
   let row=null;
   document.querySelectorAll('#lItems .item').forEach(d=>{ const on=d.dataset.id===id; d.classList.toggle('sel',on); if(on)row=d; });
