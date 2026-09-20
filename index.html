@@ -41,8 +41,8 @@ input,textarea{font-family:inherit}
 }
 /* 회전 중 크기는 JS가 화면 대각선 길이(px)로 직접 지정한다 — 어떤 각도에서도 화면을 덮는다 */
 #mapwrap.dragging{ transition:none; }     /* 손가락으로 돌리는 중엔 트랜지션 끔(끊김 방지) */
-/* 핀치 줌: 손가락을 벌리는 동안은 지도 상자를 CSS 로만 키우고, 손을 떼면 .settle 로 스르륵 단계에 맞춘 뒤 실제 줌을 적용 */
-#map.settle{ transition:transform .2s cubic-bezier(.3,.8,.3,1); }
+/* 핀치 줌: 지도 상자를 CSS 로 키우고 줄인다(--ps 가 그 배율). 핀·내 위치 아이콘은 1/--ps 로 되돌려 크기를 지킨다 */
+#map.pinching .pin,#map.pinching .me{transition:none}
 /* 네이버 SDK 가 컨테이너에 인라인 position:relative 를 넣으므로 !important 로 고정하고 크기도 명시 */
 /* 지도 상자는 래퍼보다 1.5배 크게 깔아 둔다 — 핀치로 0.7배까지 줄여도 화면 가장자리가 비지 않게 (MAP_OVER 와 같은 값) */
 #map{position:absolute !important;left:-25%;top:-25%;width:150%;height:150%;background:#0E1116;touch-action:none;will-change:transform}
@@ -602,13 +602,13 @@ function initMap(){
   map=new naver.maps.Map($('map'),{
     center:LL(37.4979,127.0276), // 강남역 기본
     zoom:15, minZoom:7,
-    draggable:true, scrollWheel:true, pinchZoom:false, disableTwoFingerTapZoom:true, keyboardShortcuts:false,
+    draggable:true, scrollWheel:true, pinchZoom:false, disableTwoFingerTapZoom:true, keyboardShortcuts:false,   /* 터치는 앱이 직접 — 첫 터치에서 draggable 을 끈다 (아래 제스처 부분) */
     zoomControl:true, zoomControlOptions:{position:naver.maps.Position.RIGHT_CENTER, style:naver.maps.ZoomControlStyle.SMALL},
     mapDataControl:false, logoControlOptions:{position:naver.maps.Position.BOTTOM_LEFT}
   });
   if(IS_MOBILE)ensureKakaoJs();     // 내비 호출은 탭한 순간 바로 되도록 미리 준비
   bindDragPause();
-  naver.maps.Event.addListener(map,'click',()=>{ manualLblId=null; lblHidden=true; syncLabel(); });   /* 지도 빈 곳 탭 → 풍선 숨김 */
+  naver.maps.Event.addListener(map,'click',onMapTap);   /* 지도 빈 곳 클릭(마우스) → 풍선 숨김. 터치 탭은 onTouchEnd 에서 */
   items.forEach(addOverlay);
   updateCounts();
   if(items.length) fitAll();
@@ -653,6 +653,8 @@ function refreshPin(it){
   o.ov.setZIndex(sel?10:(lbl?9:0));
   applyPinCounterRotate(o.el);
 }
+/* 지도 빈 곳을 탭/클릭 → 풍선 숨김 (핀·목록을 다시 누르면 해제) */
+function onMapTap(){ manualLblId=null; lblHidden=true; syncLabel(); }
 /* 말풍선 대상: 손으로 고른 핀(manualLblId)이 있고 아직 미배송이면 그 핀, 아니면 가까운 배송지(chipTarget) */
 let lblId=null, manualLblId=null, lblHidden=false;   /* lblHidden: 지도 빈 곳을 탭해 풍선을 숨긴 상태 (핀·목록을 다시 누르면 해제) */
 function syncLabel(){
@@ -697,6 +699,7 @@ function fitAll(){
   let z;
   if(bw<1&&bh<1) z=17;
   else z=Math.max(7,Math.min(Z, Z+Math.floor(Math.log2(Math.min(vw/Math.max(bw,1), vh/Math.max(bh,1))))));
+  resetVScale();                                                // 핀치로 남은 배율은 없애고 계산 (배율 1 기준)
   const k=Math.pow(2,z-Z);                                      // 줌 z 픽셀로 환산 배율
   /* 사각형 중심(회전 좌표) → 화면 정중앙에서 보이는 영역 중심까지의 벡터를 빼서 → 지도 좌표로 되돌림 */
   const mx=(x0+x1)/2*k + (innerWidth/2-vcx), my=(y0+y1)/2*k + (innerHeight/2-vcy);
@@ -1142,7 +1145,7 @@ function updateMeMotion(c){
 }
 function applyMeTransform(){
   if(!myEl)return;
-  myEl.style.transform='rotate('+(-mapAngle+meLean)+'deg)';
+  myEl.style.transform='rotate('+(-mapAngle+meLean)+'deg) scale(calc(1/var(--ps,1)))';
   myEl.classList.toggle('run',meMoving);
 }
 /* 한 번짜리 요청의 실패는 조용히 — 권한 거부만 알리고, 나머지는 15초 안내 타이머가 처리 */
@@ -1155,7 +1158,7 @@ function posErr(e){
 }
 /* 지도를 직접 움직이면 따라가기 일시 해제 (📍 다시 누르면 재개) */
 function bindDragPause(){
-  naver.maps.Event.addListener(map,'dragstart',()=>{follow=false});
+  naver.maps.Event.addListener(map,'dragstart',()=>{follow=false});   // 마우스 드래그(데스크톱). 터치는 panStart 에서 끈다
 }
 /* 두 지점 거리(m) */
 function distM(a,b){
@@ -1212,8 +1215,12 @@ function fitWrapForRotation(rotated){
   wrap.style.width=want; wrap.style.height=want;
   if(map){
     const c=map.getCenter();
-    if(map.autoResize) map.autoResize(); else naver.maps.Event.trigger(map,'resize');   // 컨테이너 크기 변경을 지도에 알림
+    /* autoResize 는 getBoundingClientRect 를 읽어서, 래퍼가 돌아가 있으면(또는 도는 중이면) 회전된 바깥 상자 크기(√2배까지)를
+       지도 크기로 착각한다 → 지도 중심이 화면 가운데에서 벗어나 panTo·핀치 기준점이 다 어긋난다. 요소의 실제 크기를 직접 준다 */
+    const me=$('map'); me.style.width=''; me.style.height='';   // setSize 가 남긴 인라인 크기를 지워야 CSS(150%) 크기로 다시 잰다
+    map.setSize(new naver.maps.Size(me.offsetWidth, me.offsetHeight));
     map.setCenter(c);        // 중심 유지
+    applyVScale();           // 상자 크기가 바뀌었으니 CSS 배율의 기준점(상자 중심)도 다시 잡는다
   }
 }
 /* 화면 회전/창 크기 변경 시 대각선 길이 재계산 */
@@ -1222,7 +1229,7 @@ addEventListener('resize',()=>{ if(mapAngle%360!==0) fitWrapForRotation(true); }
 /* 핀 하나를 지도 회전 반대로 돌려 세운다 (끝점 기준 회전) */
 function applyPinCounterRotate(el){
   if(!el)return;
-  el.style.transform='rotate('+(-mapAngle)+'deg)';
+  el.style.transform='rotate('+(-mapAngle)+'deg) scale(calc(1/var(--ps,1)))';
 }
 function applyAllPinsCounterRotate(){
   Object.values(overlays).forEach(o=>applyPinCounterRotate(o.el));
@@ -1244,47 +1251,187 @@ function resetRotation(){
   if(navigator.vibrate)navigator.vibrate([20,30,20]);
   toast('북쪽으로 정렬');
 }
-/* ═══════════ 두 손가락으로 지도 돌리기 (자유 회전, -180°~180°) ═══════════ */
-/* 두 손가락을 지도에 얹고 비틀면 손가락이 만드는 선의 각도 변화만큼 지도가 돈다.
-   첫 움직임을 보고 "비틀기(회전)"인지 "벌리기(확대)"인지 한 번만 판정한다.
-   확대로 판정되면 이벤트를 그대로 흘려보내 네이버 지도 핀치 줌이 살아 있게 한다. */
-const TWIST_DEG=8, PINCH_PX=26;
-let twistMode=null;   // null=판정 전, 'rot'=회전 중, 'zoom'=핀치에 양보
-let holdUntilUp=false; // 두 손가락 제스처 뒤 손가락을 전부 뗄 때까지 한 손가락 이동을 막는다
-let twistStart=0, twistBase=0, twistDist0=0;
-
-function touchPairAngle(t){
-  return Math.atan2(t[1].clientY-t[0].clientY, t[1].clientX-t[0].clientX)*180/Math.PI;
-}
-function touchPairDist(t){
-  return Math.hypot(t[1].clientX-t[0].clientX, t[1].clientY-t[0].clientY);
-}
-function twistBegin(e){
-  if(e.touches.length!==2){twistMode=null;return}
-  twistMode=null;                       // 아직 판정 전 — 네이버 지도도 touchstart를 받게 둔다
-  twistStart=touchPairAngle(e.touches);
-  twistDist0=touchPairDist(e.touches);
-  twistBase=mapAngle;
-}
-/* ── 핀치 줌 (앱이 직접) ──
-   네이버 지도는 줌을 정수 단계로만 받고, 줌을 바꾸면 타일 이미지를 즉시 새 것으로 바꾼다(다운로드 전이면 잠깐 빈 화면).
-   그래서:
-   ① 벌리는 동안 지도 상자를 CSS 로 손가락의 PINCH_DAMP 비율만큼 키우고,
-   ② 배율이 1.2 / 0.85 를 지나면 다음 단계 타일을 미리 받아 두고(캐시),
-   ③ √2 / 1/√2 를 넘는 순간 실제 줌을 한 단계 바꾸면서 CSS 배율을 그만큼 되돌린다 — 타일이 캐시돼 있어 화면이 끊기지 않는다,
-   ④ 손을 떼면 남은 자투리(0.71~1.41배)만 0.2초 동안 1 로 스르륵 맞춘다. */
-const PINCH_DAMP=0.85;   // 1 이면 손가락 그대로, 작을수록 천천히
+/* ═══════════ 손가락 제스처 — 앱이 직접 처리 ═══════════
+   터치 기기에서는 네이버 지도의 터치 조작(드래그·핀치)을 끄고(draggable:false, pinchZoom:false) 앱이 전부 받는다.
+   이유:
+   ① 네이버는 줌을 정수 단계로만 받아(15.4 → 15) 손가락을 그대로 못 따라간다.
+      → 손가락 배율은 CSS 로 지도 상자를 키우고 줄여서 보여 주고, √2 를 넘을 때마다 실제 줌을 한 단계 옮긴다.
+        손을 떼도 남는 배율(0.71~1.41, vScale)은 그대로 둔다 — 단계에 "탁" 맞추는 튐이 없다 (가짜 소수점 줌).
+   ② 그 배율이 남아 있으면 네이버 드래그는 손가락보다 빠르거나 느려진다 → 끌기도 앱이 배율을 보정해 처리(관성 포함).
+   ③ 지도를 돌린 상태(mapAngle)는 앱만 안다.
+   한 손가락: 끌기. 두 손가락: 첫 움직임으로 회전/확대를 판정하고, 둘 다 손가락 가운데를 따라 같이 끌린다.
+   손가락 하나를 떼면 남은 손가락으로 끌기가 바로 이어진다. */
+const TOUCH=('ontouchstart' in window)||navigator.maxTouchPoints>0;
+const TWIST_DEG=8, PINCH_PX=8, PAN_PX=5;
 const MAP_OVER=0.25;     // #map 이 래퍼 밖으로 나가 있는 비율 (CSS left/top:-25% 와 같은 값)
 const SQ2=Math.SQRT2;
-let pinchScale=1, pinchOrigin=null, pinchAnchor=null, pinchDist0=1, pinchApplied=0, pinchSettling=false;
-let settleFinish=null, settleTimer=null;   /* 손을 뗀 뒤 스르륵 맞추는 중(.settle)일 때 취소용 */
-/* 화면 좌표 → #map 안 좌표 (래퍼가 회전돼 있어도, 지도 상자가 래퍼보다 커도 맞게) */
+let vScale=1;            // 손을 뗀 뒤에도 남겨 두는 화면 배율 — 지도 상자 중심 기준. "실제 줌 × vScale" 이 보이는 배율
+let gest=null;           // 진행 중인 제스처 {mode:'pan'|'wait'|'rot'|'zoom', ...}
+let inertiaId=0;
+
+const mapC=()=>{ const m=$('map'); return {x:m.offsetWidth/2, y:m.offsetHeight/2}; };
+const midOf=t=>({x:(t[0].clientX+t[1].clientX)/2, y:(t[0].clientY+t[1].clientY)/2});
+function touchPairAngle(t){ return Math.atan2(t[1].clientY-t[0].clientY, t[1].clientX-t[0].clientX)*180/Math.PI; }
+function touchPairDist(t){ return Math.hypot(t[1].clientX-t[0].clientX, t[1].clientY-t[0].clientY); }
+/* 화면 벡터 → 지도 상자 벡터 (래퍼 회전을 되돌림) */
+function screenVecToMap(dx,dy){ const r=-mapAngle*Math.PI/180; return {x:dx*Math.cos(r)-dy*Math.sin(r), y:dx*Math.sin(r)+dy*Math.cos(r)}; }
+/* 화면 좌표 → #map 안 좌표 (CSS 배율은 반영하지 않은 상자 픽셀) */
 function screenToMap(x,y){
   const wrap=$('mapwrap'), W=wrap.offsetWidth, H=wrap.offsetHeight;
-  const cx=innerWidth/2, cy=innerHeight/2, r=-mapAngle*Math.PI/180;
-  const dx=x-cx, dy=y-cy;
-  return {x:dx*Math.cos(r)-dy*Math.sin(r)+W/2+W*MAP_OVER, y:dx*Math.sin(r)+dy*Math.cos(r)+H/2+H*MAP_OVER};
+  const v=screenVecToMap(x-innerWidth/2, y-innerHeight/2);
+  return {x:v.x+W/2+W*MAP_OVER, y:v.y+H/2+H*MAP_OVER};
 }
+/* 상자 픽셀 → 위경도 (상자 중심 = 지도 중심). 네이버 projection 의 offset 은 지도를 옮긴 직후 어긋나 있어 직접 계산 */
+function mapPxToLL(p){ const c=map.getCenter(), z=map.getZoom(), cp=mercPx(c.lat(),c.lng(),z), C=mapC(); return mercLL(cp.x+p.x-C.x, cp.y+p.y-C.y, z); }
+/* 지도 내용이 상자 픽셀 (dx,dy) 만큼 움직이도록 중심을 옮긴다 */
+function shiftMapPx(dx,dy){ const c=map.getCenter(), z=map.getZoom(), cp=mercPx(c.lat(),c.lng(),z); map.setCenter(mercLL(cp.x-dx, cp.y-dy, z)); }
+function setVisual(ox,oy,tx,ty,s){
+  const m=$('map');
+  m.style.transformOrigin=ox+'px '+oy+'px';
+  m.style.transform='translate('+tx+'px,'+ty+'px) scale('+s+')';
+  m.style.setProperty('--ps', s);     // 핀·내 위치 아이콘이 1/s 로 되돌려 원래 크기를 지킨다
+}
+/* 손을 뗀 상태의 표준형: 상자 중심 기준 scale(vScale) — 중심이 화면 가운데에 그대로 있어 panTo·setCenter 가 그대로 맞는다 */
+function applyVScale(){ const C=mapC(); setVisual(C.x,C.y,0,0,vScale); }
+function resetVScale(){ vScale=1; applyVScale(); }
+
+/* ── 한 손가락 끌기 (+관성) ── */
+function stopInertia(){ inertiaId++; }
+function panStart(x,y,target){
+  stopInertia(); follow=false;
+  gest={mode:'pan', x, y, lx:x, ly:y, vx:0, vy:0, t:performance.now(), t0:performance.now(), moved:false, target};
+}
+function panMove(x,y){
+  const g=gest, now=performance.now();
+  if(!g.moved){ if(Math.hypot(x-g.x,y-g.y)<PAN_PX) return false; g.moved=true; $('mapwrap').classList.add('dragging'); }
+  const dx=x-g.lx, dy=y-g.ly;
+  const v=screenVecToMap(dx,dy); shiftMapPx(v.x/vScale, v.y/vScale);
+  const dt=now-g.t;
+  if(dt>0){ const a=Math.min(1,dt/40); g.vx=g.vx*(1-a)+(dx/dt)*a; g.vy=g.vy*(1-a)+(dy/dt)*a; }   // 최근 속도(화면 px/ms)
+  g.lx=x; g.ly=y; g.t=now; return true;
+}
+function panEnd(fling){
+  const g=gest; gest=null; $('mapwrap').classList.remove('dragging');
+  if(!g||!g.moved||!fling) return;
+  if(performance.now()-g.t>80) return;                       // 멈춘 채로 떼면 관성 없음
+  let vx=g.vx, vy=g.vy, sp=Math.hypot(vx,vy);
+  if(sp<0.15) return;
+  if(sp>3){ vx*=3/sp; vy*=3/sp; }
+  let last=performance.now(); const id=++inertiaId;
+  const step=()=>{
+    if(id!==inertiaId) return;
+    const now=performance.now(), dt=Math.min(40, now-last); last=now;
+    const v=screenVecToMap(vx*dt, vy*dt); shiftMapPx(v.x/vScale, v.y/vScale);
+    const k=Math.pow(0.996, dt); vx*=k; vy*=k;              // 1ms 에 0.4% 씩 감속
+    if(Math.hypot(vx,vy)>0.02) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
+
+/* ── 두 손가락: 회전 / 확대 ── */
+function twoBegin(t){
+  stopInertia(); follow=false;
+  const m=midOf(t);
+  gest={mode:'wait', a0:touchPairAngle(t), d0:touchPairDist(t), base:mapAngle, m0:m, lm:m};
+}
+function twoMove(t){
+  const g=gest, ang=normAngle(touchPairAngle(t)-g.a0), d=touchPairDist(t);
+  if(g.mode==='wait'){
+    if(Math.abs(ang)>=TWIST_DEG){ g.mode='rot'; $('mapwrap').classList.add('dragging'); }
+    else if(Math.abs(d-g.d0)>=PINCH_PX){ g.mode='zoom'; pinchStart(g); }
+    else return;
+  }
+  if(g.mode==='rot'){
+    mapAngle=normAngle(g.base+ang); applyMapRotation();
+    const m=midOf(t), v=screenVecToMap(m.x-g.lm.x, m.y-g.lm.y); shiftMapPx(v.x/vScale, v.y/vScale); g.lm=m;   // 가운데 이동도 따라감
+  }else pinchMove(g,t);
+}
+/* 확대: 기준점 A(처음 두 손가락 가운데) 를 화면에 고정한 채 CSS 배율만 바꾼다.
+   처음엔 화면이 변하지 않도록 상자 중심 기준 vScale 을 A 기준 + 이동(T0) 표현으로 바꿔 둔다. */
+function pinchStart(g){
+  const C=mapC(), m0=screenToMap(g.m0.x,g.m0.y);
+  g.A={x:C.x+(m0.x-C.x)/vScale, y:C.y+(m0.y-C.y)/vScale};   // CSS 배율 벗겨 낸 상자 픽셀
+  g.All=mapPxToLL(g.A);                                      // 실제 줌 단계를 바꿀 때 고정할 좌표
+  g.s0=vScale; g.s=vScale; g.pre=null;
+  g.T0={x:(1-vScale)*(C.x-g.A.x), y:(1-vScale)*(C.y-g.A.y)}; g.T=g.T0;
+  $('map').classList.add('pinching');
+  setVisual(g.A.x,g.A.y,g.T0.x,g.T0.y,g.s);
+}
+function pinchMove(g,t){
+  let s=g.s0*touchPairDist(t)/g.d0;                          // 손가락 배율 그대로 (감속 없음)
+  /* √2 를 넘으면 실제 줌을 한 단계 옮긴다 — 기준 좌표 All 은 화면에 고정. 미리 받아 둔 타일이라 끊기지 않는다 */
+  while(s>=SQ2&&map.getZoom()<21){ map.zoomBy(1,g.All,false); g.s0/=2; s/=2; }
+  while(s<=1/SQ2&&map.getZoom()>7){ map.zoomBy(-1,g.All,false); g.s0*=2; s*=2; }
+  s=Math.min(SQ2, Math.max(1/SQ2, s));                       // 최대·최소 줌에서는 여기서 멈춤
+  const z=map.getZoom();
+  if(s>1.02&&g.pre!==z+1){ g.pre=z+1; preloadTiles(z+1); }
+  else if(s<0.98&&g.pre!==z-1){ g.pre=z-1; preloadTiles(z-1); }
+  g.s=s;
+  const m=midOf(t), v=screenVecToMap(m.x-g.m0.x, m.y-g.m0.y);
+  g.T={x:g.T0.x+v.x, y:g.T0.y+v.y};                          // 손가락 가운데가 움직인 만큼 같이 끌림
+  setVisual(g.A.x,g.A.y,g.T.x,g.T.y,s);
+}
+/* 손을 떼면: "A 기준 scale(s) + 이동 T" 를 "상자 중심 기준 scale(s)" 로 바꾸되 화면은 그대로 —
+   내용이 D 만큼 움직여야 하므로 그만큼 실제 중심을 옮긴다. 배율 s 는 vScale 로 남긴다 */
+function pinchEnd(g){
+  const C=mapC(), s=g.s, T=g.T, A=g.A;
+  const D={x:(A.x-C.x)*(1-s)/s + T.x/s, y:(A.y-C.y)*(1-s)/s + T.y/s};
+  shiftMapPx(D.x,D.y);
+  vScale=s; applyVScale();
+  $('map').classList.remove('pinching');
+}
+function endGesture(){
+  const g=gest; if(!g) return;
+  if(g.mode==='zoom') pinchEnd(g);
+  else if(g.mode==='rot'||g.mode==='pan'){ $('mapwrap').classList.remove('dragging'); if(g.mode==='rot'&&navigator.vibrate)navigator.vibrate(15); }
+  gest=null;
+}
+
+/* ── 터치 이벤트 배선 ── */
+let touchSeen=false;
+function onTouchStart(e){
+  if(!touchSeen){ touchSeen=true; map.setOptions({draggable:false}); }   // 손가락을 쓰는 기기: 네이버 드래그는 끄고 앱이 맡는다 (마우스만 쓰는 PC 는 그대로)
+  const t=e.touches;
+  if(t.length===1){ endGesture(); panStart(t[0].clientX,t[0].clientY,e.target); }
+  else if(t.length===2){ endGesture(); twoBegin(t); }
+  else endGesture();
+}
+function onTouchMove(e){
+  if(!gest) return;
+  const t=e.touches;
+  if(gest.mode==='pan'){
+    if(t.length!==1) return;
+    if(panMove(t[0].clientX,t[0].clientY)){ e.preventDefault(); e.stopImmediatePropagation(); }
+    return;
+  }
+  if(t.length!==2) return;
+  twoMove(t);
+  if(gest.mode!=='wait'){ e.preventDefault(); e.stopImmediatePropagation(); }
+}
+function onTouchEnd(e){
+  if(!gest) return;
+  const t=e.touches, g=gest;
+  if(g.mode==='pan'){
+    if(t.length!==0) return;
+    const moved=g.moved, quick=performance.now()-g.t0<350, onPin=g.target&&g.target.closest&&g.target.closest('.pin,.me');
+    panEnd(true);
+    if(moved){ e.preventDefault(); e.stopImmediatePropagation(); }   // 끌고 나서 뗀 건 탭이 아니다 (풍선이 닫히지 않게)
+    else if(quick&&!onPin) onMapTap();                               // 빈 곳을 짧게 탭 → 풍선 숨김 (네이버 click 은 터치 조작을 끄면 안 온다)
+    return;
+  }
+  const was=g.mode; endGesture();
+  if(was!=='wait'){ e.preventDefault(); e.stopImmediatePropagation(); }
+  if(t.length===1) panStart(t[0].clientX,t[0].clientY);      // 남은 손가락으로 바로 끌기
+}
+function onTouchCancel(){ if(gest&&gest.mode==='pan'){ panEnd(false); } else endGesture(); }
+if(TOUCH){
+  const m=$('map');
+  m.addEventListener('touchstart',onTouchStart,{passive:true,capture:true});
+  m.addEventListener('touchmove',onTouchMove,{passive:false,capture:true});
+  m.addEventListener('touchend',onTouchEnd,{passive:false,capture:true});
+  m.addEventListener('touchcancel',onTouchCancel,{capture:true});
+}
+
 /* ── 타일 미리 받기 ──
    지금 떠 있는 타일 주소에서 규칙(.../{z}/{x}/{y}@2x.png?...)을 읽어, 목표 줌에서 화면을 덮을 타일을 미리 요청한다.
    같은 주소는 브라우저 캐시에 남으므로 네이버가 교체하는 순간 바로 뜬다. */
@@ -1313,98 +1460,6 @@ function preloadTiles(z){
   list.forEach(o=>{ if(tileSeen.has(o.u))return; tileSeen.add(o.u); const im=new Image(); im.decoding='async'; im.src=o.u; tileKeep.push(im); });
   if(tileKeep.length>400) tileKeep=tileKeep.slice(-200);
   if(tileSeen.size>3000) tileSeen.clear();
-}
-let preloadedFor=null;
-/* 스르륵 맞추는 도중 다시 손을 대면 즉시 끝낸다 — 안 그러면 새 핀치 중간에 이전 finish 가 들어와
-   transform·transformOrigin 을 지워 버려서, CSS 확대는 상자 중심·실제 줌은 손가락 기준으로 어긋나 지도가 튄다 */
-function cancelSettle(){
-  if(!pinchSettling)return;
-  const m=$('map');
-  if(settleFinish) m.removeEventListener('transitionend',settleFinish);
-  clearTimeout(settleTimer); settleFinish=null; settleTimer=null;
-  m.classList.remove('settle'); m.style.transform=''; m.style.transformOrigin='';
-  pinchSettling=false;
-}
-function pinchStart(t){
-  cancelSettle();
-  const mx=(t[0].clientX+t[1].clientX)/2, my=(t[0].clientY+t[1].clientY)/2;
-  pinchOrigin=screenToMap(mx,my); pinchScale=1; pinchApplied=0; pinchDist0=touchPairDist(t)||1; preloadedFor=null;
-  /* 실제 줌의 기준점은 픽셀이 아니라 좌표(LatLng)로 넘겨야 한다 — zoomBy 에 Point 를 주면 무시되고 지도 중심 기준으로 줌돼서,
-     CSS 확대(손가락 기준)와 실제 줌(중심 기준)이 어긋나 손을 뗄 때 지도가 엉뚱한 곳으로 튄다 */
-  pinchAnchor=map.getProjection().fromOffsetToCoord(new naver.maps.Point(pinchOrigin.x,pinchOrigin.y));
-  const m=$('map'); m.classList.remove('settle');
-  m.style.transformOrigin=pinchOrigin.x+'px '+pinchOrigin.y+'px';
-}
-function pinchMove(t){
-  const total=Math.pow(touchPairDist(t)/pinchDist0,PINCH_DAMP);   // 제스처 시작 대비 누적 배율
-  let visual=total/Math.pow(2,pinchApplied);                       // 실제 줌 반영분을 뺀 화면 배율
-  const origin=pinchAnchor;   // 손가락 가운데 지점의 좌표 — 줌 단계가 바뀌어도 이 지점은 화면에서 안 움직인다
-  /* 방향이 정해지는 즉시 다음 단계 타일을 미리 받는다 (여유 시간 최대화) */
-  const z=map.getZoom();
-  if(visual>1.02&&preloadedFor!==z+1){ preloadedFor=z+1; preloadTiles(z+1); }
-  else if(visual<0.98&&preloadedFor!==z-1){ preloadedFor=z-1; preloadTiles(z-1); }
-  /* 단계 넘김 — 한 번의 move 에 여러 단계 넘어갈 수도 있어 while */
-  while(visual>=SQ2&&map.getZoom()<21){ map.zoomBy(1,origin,false); pinchApplied++; visual/=2; }
-  while(visual<=1/SQ2&&map.getZoom()>7){ map.zoomBy(-1,origin,false); pinchApplied--; visual*=2; }
-  pinchScale=visual;
-  $('map').style.transform='scale('+visual+')';
-}
-function pinchEnd(){
-  if(pinchSettling)return;
-  const m=$('map'); pinchSettling=true;
-  const finish=()=>{
-    m.removeEventListener('transitionend',finish);
-    clearTimeout(settleTimer); settleFinish=null; settleTimer=null;
-    m.classList.remove('settle');
-    m.style.transform=''; m.style.transformOrigin='';
-    pinchSettling=false;
-  };
-  settleFinish=finish;
-  if(Math.abs(pinchScale-1)<0.01){ finish(); return; }
-  m.addEventListener('transitionend',finish);
-  m.classList.add('settle');
-  requestAnimationFrame(()=>{ if(pinchSettling&&settleFinish===finish) m.style.transform='scale(1)'; });
-  settleTimer=setTimeout(()=>{ if(pinchSettling) finish(); },320);   /* transitionend 가 안 오는 경우 대비 */
-}
-function twistMove(e){
-  /* 두 손가락 제스처를 하다 한 손가락만 남으면 네이버 지도가 그걸 드래그로 받아 — 막혀 있던 동안의 이동량을 한 번에 적용해 —
-     지도가 확 밀린다. 손가락을 전부 뗄 때까지는 한 손가락 이동을 흘려보내지 않는다 */
-  if(holdUntilUp&&e.touches.length<2){ e.preventDefault(); e.stopImmediatePropagation(); return; }
-  if(e.touches.length!==2)return;
-  if(twistMode==='zoom'){ pinchMove(e.touches); e.preventDefault(); e.stopImmediatePropagation(); return; }
-  let d=normAngle(touchPairAngle(e.touches)-twistStart);
-  if(!twistMode){
-    if(Math.abs(d)>=TWIST_DEG){
-      twistMode='rot';
-      $('mapwrap').classList.add('dragging');
-    }else if(Math.abs(touchPairDist(e.touches)-twistDist0)>=PINCH_PX){
-      twistMode='zoom';                 // 확대/축소 — 여기서부터 앱이 처리
-      pinchStart(e.touches); pinchMove(e.touches);
-      e.preventDefault(); e.stopImmediatePropagation();
-      return;
-    }else return;
-  }
-  mapAngle=normAngle(twistBase+d);
-  applyMapRotation();
-  e.preventDefault(); e.stopImmediatePropagation();
-}
-function twistEnd(e){
-  if(twistMode) holdUntilUp=true;             // 회전/확대를 하던 중이었으면 남은 손가락은 무시
-  if(!e.touches||e.touches.length===0) holdUntilUp=false;
-  if(twistMode==='rot'){
-    $('mapwrap').classList.remove('dragging');
-    if(navigator.vibrate)navigator.vibrate(15);
-  }else if(twistMode==='zoom'){
-    pinchEnd();
-  }
-  twistMode=null;
-}
-{
-  const m=$('map');
-  m.addEventListener('touchstart',twistBegin,{passive:false,capture:true});
-  m.addEventListener('touchmove',twistMove,{passive:false,capture:true});
-  m.addEventListener('touchend',twistEnd,{capture:true});
-  m.addEventListener('touchcancel',twistEnd,{capture:true});
 }
 $('angleBadge').onclick=resetRotation;
 
