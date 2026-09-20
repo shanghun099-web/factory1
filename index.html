@@ -45,7 +45,7 @@ input,textarea{font-family:inherit}
 #map.settle{ transition:transform .2s cubic-bezier(.3,.8,.3,1); }
 /* 네이버 SDK 가 컨테이너에 인라인 position:relative 를 넣으므로 !important 로 고정하고 크기도 명시 */
 /* 지도 상자는 래퍼보다 1.5배 크게 깔아 둔다 — 핀치로 0.7배까지 줄여도 화면 가장자리가 비지 않게 (MAP_OVER 와 같은 값) */
-#map{position:absolute !important;left:-25%;top:-25%;width:150%;height:150%;background:#0E1116;touch-action:none}
+#map{position:absolute !important;left:-25%;top:-25%;width:150%;height:150%;background:#0E1116;touch-action:none;will-change:transform}
 #map *{touch-action:none}
 .pin{transition:transform .22s cubic-bezier(.4,0,.2,1)}
 #mapwrap.dragging .pin{transition:none}
@@ -1426,13 +1426,13 @@ function twistBegin(e){
 /* ── 핀치 줌 (앱이 직접) ──
    네이버 지도는 줌을 정수 단계로만 받는다. 그래서:
    ① 벌리는 동안 지도 상자를 CSS 로 손가락의 PINCH_DAMP 비율만큼(천천히) 키우고,
-   ② 배율이 √2 를 넘거나 1/√2 아래로 내려갈 때마다 실제 줌을 한 단계 바꾸면서 CSS 배율을 그만큼 되돌린다
-      (타일이 미리 로드돼 손을 뗄 때 튀지 않는다),
-   ③ 손을 떼면 남은 자투리 배율(0.71~1.41)만 0.2초 동안 1 로 스르륵 맞춘다. */
-const PINCH_DAMP=0.75;   // 1 이면 손가락 그대로, 작을수록 천천히
+   ② 손가락을 움직이는 동안엔 실제 줌을 건드리지 않는다 (도중에 바꾸면 그 순간 튄다),
+   ③ 손을 떼면 가까운 단계만큼 실제 줌을 바꾸는 동시에 CSS 배율을 그만큼 되돌려 화면은 그대로 두고,
+      남은 자투리(0.71~1.41배)만 0.2초 동안 1 로 스르륵 맞춘다. */
+const PINCH_DAMP=0.85;   // 1 이면 손가락 그대로, 작을수록 천천히
 const MAP_OVER=0.25;     // #map 이 래퍼 밖으로 나가 있는 비율 (CSS left/top:-25% 와 같은 값)
 const SQ2=Math.SQRT2;
-let pinchScale=1, pinchOrigin=null, pinchDist0=1, pinchApplied=0, pinchSettling=false;
+let pinchScale=1, pinchOrigin=null, pinchDist0=1, pinchSettling=false;
 /* 화면 좌표 → #map 안 좌표 (래퍼가 회전돼 있어도, 지도 상자가 래퍼보다 커도 맞게) */
 function screenToMap(x,y){
   const wrap=$('mapwrap'), W=wrap.offsetWidth, H=wrap.offsetHeight;
@@ -1442,34 +1442,40 @@ function screenToMap(x,y){
 }
 function pinchStart(t){
   const mx=(t[0].clientX+t[1].clientX)/2, my=(t[0].clientY+t[1].clientY)/2;
-  pinchOrigin=screenToMap(mx,my); pinchScale=1; pinchApplied=0; pinchDist0=touchPairDist(t)||1;
+  pinchOrigin=screenToMap(mx,my); pinchScale=1; pinchDist0=touchPairDist(t)||1;
   const m=$('map'); m.classList.remove('settle');
   m.style.transformOrigin=pinchOrigin.x+'px '+pinchOrigin.y+'px';
 }
 function pinchMove(t){
-  const total=Math.pow(touchPairDist(t)/pinchDist0,PINCH_DAMP);   // 제스처 시작 대비 누적 배율
-  let visual=total/Math.pow(2,pinchApplied);                       // 실제 줌 반영분을 뺀 화면 배율
-  const origin=new naver.maps.Point(pinchOrigin.x,pinchOrigin.y);
-  /* 단계 넘김 — 한 번의 move 에 여러 단계 넘어갈 수도 있어 while */
-  while(visual>=SQ2&&map.getZoom()<21){ map.zoomBy(1,origin,false); pinchApplied++; visual/=2; }
-  while(visual<=1/SQ2&&map.getZoom()>7){ map.zoomBy(-1,origin,false); pinchApplied--; visual*=2; }
-  pinchScale=visual;
-  $('map').style.transform='scale('+visual+')';
+  let sc=Math.pow(touchPairDist(t)/pinchDist0,PINCH_DAMP);   // 제스처 시작 대비 배율
+  const z=map.getZoom();
+  sc=Math.min(Math.pow(2,21-z),Math.max(Math.pow(2,7-z),sc));   // 줌 한계 밖으로는 더 안 커지게
+  pinchScale=sc;
+  $('map').style.transform='scale('+sc+')';
 }
 function pinchEnd(){
   if(pinchSettling)return;
   const m=$('map'); pinchSettling=true;
+  const z=map.getZoom();
+  const steps=Math.max(7-z,Math.min(21-z,Math.round(Math.log2(pinchScale))));
+  /* 실제 줌을 바꾸는 동시에 CSS 배율을 그만큼 되돌린다 → 이 순간 화면은 변하지 않는다 */
+  let residual=pinchScale;
+  if(steps!==0){
+    map.zoomBy(steps,new naver.maps.Point(pinchOrigin.x,pinchOrigin.y),false);
+    residual=pinchScale/Math.pow(2,steps);
+    m.style.transform='scale('+residual+')';
+  }
   const finish=()=>{
     m.removeEventListener('transitionend',finish);
     m.classList.remove('settle');
     m.style.transform=''; m.style.transformOrigin='';
     pinchSettling=false;
   };
-  if(Math.abs(pinchScale-1)<0.01){ finish(); return; }
+  if(Math.abs(residual-1)<0.01){ finish(); return; }
   m.addEventListener('transitionend',finish);
-  m.classList.add('settle');
-  requestAnimationFrame(()=>{ m.style.transform='scale(1)'; });
-  setTimeout(()=>{ if(pinchSettling) finish(); },320);   /* transitionend 가 안 오는 경우 대비 */
+  /* 되돌린 배율이 먼저 그려진 뒤 정착 애니메이션 시작 */
+  requestAnimationFrame(()=>requestAnimationFrame(()=>{ m.classList.add('settle'); m.style.transform='scale(1)'; }));
+  setTimeout(()=>{ if(pinchSettling) finish(); },380);   /* transitionend 가 안 오는 경우 대비 */
 }
 function twistMove(e){
   if(e.touches.length!==2)return;
