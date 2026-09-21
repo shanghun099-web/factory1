@@ -130,6 +130,14 @@ input,textarea{font-family:inherit}
   color:var(--text);font-size:13px;font-weight:600;white-space:nowrap;display:flex;align-items:center;gap:4px;
 }
 .lp-btn:active{transform:scale(.95)}
+.lp-btn.on{border-color:var(--blue);color:var(--blue);box-shadow:0 0 0 2px rgba(92,168,255,.25)}
+/* 콕 찍기 중: 지도 위에 안내 띠 */
+#pickHint{
+  position:fixed;left:50%;top:calc(env(safe-area-inset-top) + 66px);transform:translateX(-50%);z-index:21;
+  background:var(--blue);color:#0B1E33;font-size:13px;font-weight:800;padding:8px 14px;border-radius:999px;
+  box-shadow:0 4px 14px rgba(0,0,0,.4);display:none;white-space:nowrap;pointer-events:none;
+}
+#pickHint.show{display:block}
 #listpanel .items{height:146px;overflow-y:auto;padding:0 8px 8px;overscroll-behavior:contain}
 #listpanel.collapsed .items{display:none}
 
@@ -363,11 +371,13 @@ input,textarea{font-family:inherit}
     <b>배송 목록</b><span class="sub" id="lCount"></span>
     <span class="spacer"></span>
     <button class="lp-btn" id="btnManual" title="주소 직접 입력">⌨️ 입력</button>
-    <button class="lp-btn" id="lClearDone" title="완료건 정리">🧹</button>
+    <button class="lp-btn" id="btnPick" title="지도 위에 콕 찍어 추가">📌 콕</button>
+    <button class="lp-btn" id="lClearDone" title="완료건 정리">🗑</button>
   </div>
   <div class="items" id="lItems"></div>
 </div>
 <div id="dim"></div>
+<div id="pickHint">📌 지도에서 배송지를 콕 찍으세요 (한 번 더 누르면 취소)</div>
 
 <!-- 설정 잠금 비밀번호 -->
 <div id="lock">
@@ -608,7 +618,7 @@ function initMap(){
   });
   if(IS_MOBILE)ensureKakaoJs();     // 내비 호출은 탭한 순간 바로 되도록 미리 준비
   bindDragPause();
-  naver.maps.Event.addListener(map,'click',onMapTap);   /* 지도 빈 곳 클릭(마우스) → 풍선 숨김. 터치 탭은 onTouchEnd 에서 */
+  naver.maps.Event.addListener(map,'click',e=>{ if(pickMode&&e&&e.coord) pickAt(e.coord); else onMapTap(); });   /* 지도 빈 곳 클릭(마우스) → 풍선 숨김 / 콕 모드면 추가. 터치 탭은 onTouchEnd 에서 */
   items.forEach(addOverlay);
   updateCounts();
   if(items.length) fitAll();
@@ -1037,6 +1047,33 @@ function renderList(){
     box.appendChild(d);
   });
 }
+/* ───────── 지도 위에 콕 찍어 추가 ─────────
+   📌 콕 을 누르면 다음 한 번의 지도 탭이 배송지가 된다 (한 번 찍으면 자동 해제, 다시 누르면 취소).
+   주소는 카카오 좌표→주소로 채우고(도로명 우선, 건물명이 있으면 같이), 못 구하면 위경도로 적어 둔다 */
+let pickMode=false;
+function setPickMode(on){
+  pickMode=on;
+  $('btnPick').classList.toggle('on',on); $('pickHint').classList.toggle('show',on);
+  if(on&&navigator.vibrate)navigator.vibrate(15);
+}
+$('btnPick').onclick=()=>setPickMode(!pickMode);
+function pickAt(ll){
+  setPickMode(false);
+  const lat=ll.lat(), lng=ll.lng();
+  const fallback=()=>commit('콕 찍음', '지도에서 찍은 위치 ('+lat.toFixed(5)+', '+lng.toFixed(5)+')', lat, lng);
+  if(!geocoder){ fallback(); return; }
+  geocoder.coord2Address(lng, lat, (r,st)=>{
+    if(st!==kakao.maps.services.Status.OK||!r||!r[0]){ fallback(); return; }
+    const road=r[0].road_address, jibun=r[0].address;
+    let name=road?road.address_name:(jibun?jibun.address_name:'');
+    if(road&&road.building_name) name=road.building_name+' ('+name+')';
+    if(!name){ fallback(); return; }
+    commit('콕 찍음', name, lat, lng);
+  });
+}
+/* 화면 좌표 → 위경도 (CSS 배율·회전 반영) */
+function screenToLL(x,y){ const C=mapC(), m=screenToMap(x,y); return mapPxToLL({x:C.x+(m.x-C.x)/vScale, y:C.y+(m.y-C.y)/vScale}); }
+
 $('lClearDone').onclick=()=>{
   const n=items.filter(i=>i.done).length;
   if(!n){toast('완료된 건이 없어요');return}
@@ -1499,6 +1536,7 @@ function onTouchEnd(e){
     }
     panEnd(true);
     if(moved){ e.preventDefault(); e.stopImmediatePropagation(); }   // 끌고 나서 뗀 건 탭이 아니다 (풍선이 닫히지 않게)
+    else if(pickMode&&quick&&!onPin){ pickAt(screenToLL(g.x,g.y)); e.preventDefault(); e.stopImmediatePropagation(); }   // 📌 콕
     else if(quick){
       if(g.twoTap){ zoomAt(g.twoTap, -1); e.preventDefault(); e.stopImmediatePropagation(); return; }   // 두 손가락 탭 = 축소
       lastTap={t:now, x:g.x, y:g.y};
