@@ -699,13 +699,11 @@ function fitAll(){
   let z;
   if(bw<1&&bh<1) z=17;
   else z=Math.max(7,Math.min(Z, Z+Math.floor(Math.log2(Math.min(vw/Math.max(bw,1), vh/Math.max(bh,1))))));
-  resetVScale();                                                // 핀치로 남은 배율은 없애고 계산 (배율 1 기준)
   const k=Math.pow(2,z-Z);                                      // 줌 z 픽셀로 환산 배율
   /* 사각형 중심(회전 좌표) → 화면 정중앙에서 보이는 영역 중심까지의 벡터를 빼서 → 지도 좌표로 되돌림 */
   const mx=(x0+x1)/2*k + (innerWidth/2-vcx), my=(y0+y1)/2*k + (innerHeight/2-vcy);
   const cx=mx*cos+my*sin, cy=-mx*sin+my*cos;
-  map.setZoom(z,false);
-  map.setCenter(mercLL(cx,cy,z));
+  flyTo(mercLL(cx,cy,z), z);
 }
 $('btnFit').onclick=fitAll;
 
@@ -739,7 +737,7 @@ function resolveAddress(text){
 /* 핀 자리로 지도를 옮길 때 — GPS 따라가기(follow)를 끈다.
    켜진 채로 두면 다음 위치 갱신(보통 1초 안)에 map.panTo(myPos) 가 다시 불려 핀으로 간 지도가 곧바로 내 위치로 돌아와 버린다.
    다시 따라가게 하려면 📍 를 누르면 된다 (손으로 지도를 끌었을 때와 같은 규칙). */
-function goToPin(lat,lng){ follow=false; map.panTo(LL(lat,lng)); }
+function goToPin(lat,lng){ follow=false; flyTo(LL(lat,lng), Math.max(Math.round(effZoom()),17)); }
 async function addAddress(text){
   text=text.trim();
   if(!text)return;
@@ -1073,10 +1071,10 @@ $('btnLoc').onclick=()=>{
   if(locLongPressed){locLongPressed=false;return} // 길게 눌러 종료한 직후의 click은 무시
   if(!navigator.geolocation){toast('이 기기는 위치를 지원하지 않아요','err');return}
   follow=true;
-  if(myPos){ map.setCenter(myPos); toast('내 위치로 이동'); }
+  if(myPos){ flyTo(myPos,null); toast('내 위치로 이동'); }
   else toast('내 위치 찾는 중…');
   // 1) 빠른 대략 위치 (최근 1분 안의 캐시도 허용) → 즉시 이동
-  navigator.geolocation.getCurrentPosition(p=>{follow=true;onPos(p);map.setCenter(myPos)},oneShotErr,
+  navigator.geolocation.getCurrentPosition(p=>{follow=true;onPos(p);flyTo(myPos,null)},oneShotErr,
     {enableHighAccuracy:false,maximumAge:60000,timeout:6000});
   // 2) 정확한 위치 한 번 더 (빠른 위치가 실패해도 이걸로 이동. 그새 지도를 손으로 움직였으면 따라가진 않음)
   navigator.geolocation.getCurrentPosition(onPos,oneShotErr,
@@ -1255,24 +1253,29 @@ function resetRotation(){
    터치 기기에서는 네이버 지도의 터치 조작(드래그·핀치)을 끄고(draggable:false, pinchZoom:false) 앱이 전부 받는다.
    이유:
    ① 네이버는 줌을 정수 단계로만 받아(15.4 → 15) 손가락을 그대로 못 따라간다.
-      → 손가락 배율은 CSS 로 지도 상자를 키우고 줄여서 보여 주고, √2 를 넘을 때마다 실제 줌을 한 단계 옮긴다.
-        손을 떼도 남는 배율(0.71~1.41, vScale)은 그대로 둔다 — 단계에 "탁" 맞추는 튐이 없다 (가짜 소수점 줌).
+      → 손가락 배율은 CSS 로 지도 상자를 키우고 줄여서 보여 주고, 실제 줌은 손가락이 멈췄을 때/뗐을 때만 옮긴다.
+        손을 떼도 남는 배율(vScale)은 그대로 둔다 — 단계에 "탁" 맞추는 튐이 없다 (가짜 소수점 줌).
+        남는 배율은 0.6~1.19 사이로 잡는다: 그림을 키우는 쪽(흐림)은 1.19배까지만, 줄이는 쪽(또렷)은 0.6까지 허용.
    ② 그 배율이 남아 있으면 네이버 드래그는 손가락보다 빠르거나 느려진다 → 끌기도 앱이 배율을 보정해 처리(관성 포함).
    ③ 지도를 돌린 상태(mapAngle)는 앱만 안다.
    한 손가락: 끌기. 두 손가락: 첫 움직임으로 회전/확대를 판정하고, 둘 다 손가락 가운데를 따라 같이 끌린다.
-   손가락 하나를 떼면 남은 손가락으로 끌기가 바로 이어진다. */
+   손가락 하나를 떼면 남은 손가락으로 끌기가 바로 이어진다.
+   두 번 탭 = 그 자리 확대, 두 손가락 탭 = 축소, 두 번째 탭에서 손을 안 떼고 위아래로 끌면 = 한 손 줌.
+   목록·전체 보기·내 위치로 옮길 때는 날아가듯(flyTo) 움직인다. */
 const TOUCH=('ontouchstart' in window)||navigator.maxTouchPoints>0;
 const TWIST_DEG=8, PINCH_PX=8, PAN_PX=5;
+const TAP_MS=300, TAP_PX=28;                // 두 번 탭 판정: 앞 탭에서 이 시간·거리 안
 const MAP_OVER=0.5;      // #map 이 래퍼 밖으로 나가 있는 비율 (CSS left/top:-50% 와 같은 값)
-const SQ2=Math.SQRT2;
+const REST_MIN=0.595;    // 손을 뗀 뒤 남기는 배율 범위 [REST_MIN, 2*REST_MIN) = [0.6, 1.19)
 let vScale=1;            // 손을 뗀 뒤에도 남겨 두는 화면 배율 — 지도 상자 중심 기준. "실제 줌 × vScale" 이 보이는 배율
 let gest=null;           // 진행 중인 제스처 {mode:'pan'|'wait'|'rot'|'zoom', ...}
-let inertiaId=0;
+let inertiaId=0, flyId=0;
 
 const mapC=()=>{ const m=$('map'); return {x:m.offsetWidth/2, y:m.offsetHeight/2}; };
 const midOf=t=>({x:(t[0].clientX+t[1].clientX)/2, y:(t[0].clientY+t[1].clientY)/2});
 function touchPairAngle(t){ return Math.atan2(t[1].clientY-t[0].clientY, t[1].clientX-t[0].clientX)*180/Math.PI; }
 function touchPairDist(t){ return Math.hypot(t[1].clientX-t[0].clientX, t[1].clientY-t[0].clientY); }
+const easeInOut=t=>t<.5?2*t*t:1-Math.pow(-2*t+2,2)/2;
 /* 화면 벡터 → 지도 상자 벡터 (래퍼 회전을 되돌림) */
 function screenVecToMap(dx,dy){ const r=-mapAngle*Math.PI/180; return {x:dx*Math.cos(r)-dy*Math.sin(r), y:dx*Math.sin(r)+dy*Math.cos(r)}; }
 /* 화면 좌표 → #map 안 좌표 (CSS 배율은 반영하지 않은 상자 픽셀) */
@@ -1294,11 +1297,57 @@ function setVisual(ox,oy,tx,ty,s){
 /* 손을 뗀 상태의 표준형: 상자 중심 기준 scale(vScale) — 중심이 화면 가운데에 그대로 있어 panTo·setCenter 가 그대로 맞는다 */
 function applyVScale(){ const C=mapC(); setVisual(C.x,C.y,0,0,vScale); }
 function resetVScale(){ vScale=1; applyVScale(); }
+const effZoom=()=>map.getZoom()+Math.log2(vScale);   // 보이는 줌 (소수)
+
+/* ── 날아가기: 목록 탭·전체 보기·내 위치 등 프로그램이 지도를 옮길 때 ──
+   실제 지도는 목표(중심·줌)로 바로 옮기고(탭 직후라 멈칫이 안 느껴짐), CSS 로 "옛 화면처럼 보이는 상태"에서 출발해
+   목표(변환 없음)까지 스르륵 움직인다. 배율은 로그로, 위치는 직선으로 보간. */
+let flyActive=false;
+function stopFly(){ flyId++; if(flyActive){ flyActive=false; $('map').classList.remove('pinching'); applyVScale(); } }   // 도중에 끊기면 목표 상태로 바로
+function flyTo(ll, zoom, ms){
+  stopInertia(); stopFly(); gest=null; $('mapwrap').classList.remove('dragging');
+  const z0=map.getZoom(), c0=map.getCenter(), e0=effZoom();
+  const z1=Math.max(7,Math.min(21, zoom==null?Math.round(e0):Math.round(zoom)));
+  const C=mapC(), m=$('map');
+  /* 새 지도(z1, ll) 기준으로 본 옛 화면: 중심 c0 가 있던 픽셀 p0, 배율 k */
+  const a=mercPx(ll.lat(),ll.lng(),z1), b=mercPx(c0.lat(),c0.lng(),z1);
+  let k=Math.pow(2, e0-z1), p0={x:C.x+b.x-a.x, y:C.y+b.y-a.y};
+  /* 너무 먼 곳·너무 큰 배율 차이는 타일이 없어 빈 화면이 되니 출발점을 가까이 당긴다 */
+  const lim=Math.min(C.x,C.y)*0.8, dist=Math.hypot(p0.x-C.x,p0.y-C.y);
+  if(dist>lim){ p0={x:C.x+(p0.x-C.x)*lim/dist, y:C.y+(p0.y-C.y)*lim/dist}; }
+  k=Math.max(0.5, Math.min(4, k));
+  vScale=1; map.setZoom(z1,false); map.setCenter(ll);
+  const id=++flyId, t0=performance.now(), dur=ms||380;
+  m.classList.add('pinching'); flyActive=true;
+  const step=()=>{
+    if(id!==flyId) return;
+    const t=Math.min(1,(performance.now()-t0)/dur), f=easeInOut(t);
+    const s=Math.pow(k,1-f), p={x:p0.x+(C.x-p0.x)*f, y:p0.y+(C.y-p0.y)*f};
+    setVisual(p.x,p.y,C.x-p.x,C.y-p.y,s);
+    if(t<1) requestAnimationFrame(step);
+    else { flyActive=false; m.classList.remove('pinching'); applyVScale(); }
+  };
+  step();
+}
+/* 화면의 한 점을 고정한 채 줌을 delta 단계 바꾼다 (두 번 탭·두 손가락 탭) — 핀치와 같은 경로로 스르륵 */
+function zoomAt(pt, delta, ms){
+  stopInertia(); stopFly();
+  const g={mode:'zoom', m0:pt, lm:pt, base:mapAngle, anim:true}; gest=g; pinchStart(g);
+  const s0=g.s0, s1=s0*Math.pow(2,delta), id=++flyId, t0=performance.now(), dur=ms||260;
+  const step=()=>{
+    if(id!==flyId||gest!==g) return;
+    const t=Math.min(1,(performance.now()-t0)/dur), f=easeInOut(t);
+    pinchApply(g, s0*Math.pow(s1/s0,f), pt);
+    if(t<1) requestAnimationFrame(step);
+    else { pinchEnd(g); gest=null; }
+  };
+  step();
+}
 
 /* ── 한 손가락 끌기 (+관성) ── */
 function stopInertia(){ inertiaId++; }
 function panStart(x,y,target){
-  stopInertia(); follow=false;
+  stopInertia(); stopFly(); follow=false;
   gest={mode:'pan', x, y, lx:x, ly:y, vx:0, vy:0, t:performance.now(), t0:performance.now(), moved:false, target};
 }
 function panMove(x,y){
@@ -1330,9 +1379,9 @@ function panEnd(fling){
 
 /* ── 두 손가락: 회전 / 확대 ── */
 function twoBegin(t){
-  stopInertia(); follow=false;
+  stopInertia(); stopFly(); follow=false;
   const m=midOf(t);
-  gest={mode:'wait', a0:touchPairAngle(t), d0:touchPairDist(t), base:mapAngle, m0:m, lm:m};
+  gest={mode:'wait', a0:touchPairAngle(t), d0:touchPairDist(t), base:mapAngle, m0:m, lm:m, t0:performance.now()};
 }
 function twoMove(t){
   const g=gest, ang=normAngle(touchPairAngle(t)-g.a0), d=touchPairDist(t);
@@ -1344,48 +1393,47 @@ function twoMove(t){
   if(g.mode==='rot'){
     mapAngle=normAngle(g.base+ang); applyMapRotation();
     const m=midOf(t), v=screenVecToMap(m.x-g.lm.x, m.y-g.lm.y); shiftMapPx(v.x/vScale, v.y/vScale); g.lm=m;   // 가운데 이동도 따라감
-  }else pinchMove(g,t);
+  }else pinchApply(g, g.s0*d/g.d0, midOf(t));
 }
-/* 확대: 기준점 A(처음 두 손가락 가운데) 를 화면에 고정한 채 CSS 배율만 바꾼다.
-   처음엔 화면이 변하지 않도록 상자 중심 기준 vScale 을 A 기준 + 이동(T0) 표현으로 바꿔 둔다. */
 /* 실제 줌 단계(map.zoomBy)는 네이버가 타일을 통째로 다시 까는 동기 작업이라 30~80ms 가 걸려, 손가락이 움직이는 도중에 하면
    그 순간 화면이 "멈칫" 한다. 그래서 손가락이 움직이는 동안은 CSS 배율만 바꾸고(타일은 잠깐 흐려짐/커짐), 실제 줌은
    ① 손가락이 잠깐 멈췄을 때, ② 손을 뗐을 때, ③ 배율이 너무 커지거나(흐림) 작아져(가장자리 빔) 어쩔 수 없을 때만 옮긴다. */
-const PINCH_STILL_PX=1.5, PINCH_STILL_MS=120;   // 손가락 거리 변화가 이 이하로 이 시간 이상이면 "멈춤"
-const PINCH_MAX_S=2.3, PINCH_MIN_S=0.55;        // 이 배율을 넘으면 손가락이 움직여도 실제 줌을 옮긴다 (상자 2배라 0.5 까지 안 빔)
+const PINCH_STILL_LOG=0.012, PINCH_STILL_MS=120;   // 배율 변화(log2)가 이 이하로 이 시간 이상이면 "멈춤"
+const PINCH_MAX_S=2.3, PINCH_MIN_S=0.55;           // 이 배율을 넘으면 손가락이 움직여도 실제 줌을 옮긴다 (상자 2배라 0.5 까지 안 빔)
 function pinchStart(g){
   const C=mapC(), m0=screenToMap(g.m0.x,g.m0.y);
   g.A={x:C.x+(m0.x-C.x)/vScale, y:C.y+(m0.y-C.y)/vScale};   // CSS 배율 벗겨 낸 상자 픽셀
   g.All=mapPxToLL(g.A);                                      // 실제 줌 단계를 바꿀 때 고정할 좌표
   g.s0=vScale; g.s=vScale; g.pre=null;
-  g.lastD=g.d0; g.stillSince=performance.now();
+  g.lastS=vScale; g.stillSince=performance.now();
   g.T0={x:(1-vScale)*(C.x-g.A.x), y:(1-vScale)*(C.y-g.A.y)}; g.T=g.T0;
   $('map').classList.add('pinching');
   setVisual(g.A.x,g.A.y,g.T0.x,g.T0.y,g.s);
 }
-/* 지금 배율에 맞는 실제 줌 단계로 옮기고(기준 좌표 All 고정) 남는 배율(0.71~1.41)만 CSS 에 둔다 */
+/* 지금 배율에 맞는 실제 줌 단계로 옮기고(기준 좌표 All 고정) 남는 배율은 [REST_MIN, 2·REST_MIN) 로 */
 function pinchCommit(g){
-  let s=g.s, z=map.getZoom(), n=0;
-  while(s>=SQ2&&z+n<21){ n++; s/=2; }
-  while(s<=1/SQ2&&z+n>7){ n--; s*=2; }
+  let s=g.s, z=map.getZoom();
+  let n=Math.floor(Math.log2(s/REST_MIN));
+  n=Math.max(7-z, Math.min(21-z, n));
   if(!n) return;
   map.zoomBy(n,g.All,false);
-  g.s0/=Math.pow(2,n); g.s=s;
-  setVisual(g.A.x,g.A.y,g.T.x,g.T.y,s);
+  g.s0/=Math.pow(2,n); g.s=s/Math.pow(2,n);
+  setVisual(g.A.x,g.A.y,g.T.x,g.T.y,g.s);
 }
-function pinchMove(g,t){
-  const d=touchPairDist(t), now=performance.now(), z=map.getZoom();
-  let s=g.s0*d/g.d0;                                         // 손가락 배율 그대로 (감속 없음)
+/* 배율 s, 손가락 가운데 m 을 화면에 반영 (핀치·두 번 탭 끌기·탭 줌 애니메이션이 공통으로 씀) */
+function pinchApply(g,s,m){
+  const now=performance.now(), z=map.getZoom();
   s=Math.min(Math.pow(2,21-z), Math.max(Math.pow(2,7-z), s));   // 최대·최소 줌 밖으로는 못 나감
   g.s=s;
-  const m=midOf(t), v=screenVecToMap(m.x-g.m0.x, m.y-g.m0.y);
+  const v=screenVecToMap(m.x-g.m0.x, m.y-g.m0.y);
   g.T={x:g.T0.x+v.x, y:g.T0.y+v.y};                          // 손가락 가운데가 움직인 만큼 같이 끌림
   setVisual(g.A.x,g.A.y,g.T.x,g.T.y,s);
+  if(g.anim) return;                                         // 애니메이션은 끝에서만 반영
   /* 다음 단계 타일은 미리 받아 둔다 — 터치 처리와 같은 프레임을 피해 잠깐 뒤에 */
   const want=s>1.05?z+1:(s<0.95?z-1:null);
   if(want!==null&&g.pre!==want){ g.pre=want; setTimeout(()=>preloadTiles(want),0); }
   /* 손가락이 멈췄거나 배율이 한계면 실제 줌을 옮긴다 */
-  if(Math.abs(d-g.lastD)>PINCH_STILL_PX){ g.stillSince=now; g.lastD=d; }
+  if(Math.abs(Math.log2(s/g.lastS))>PINCH_STILL_LOG){ g.stillSince=now; g.lastS=s; }
   if(s>=PINCH_MAX_S||s<=PINCH_MIN_S||now-g.stillSince>=PINCH_STILL_MS) pinchCommit(g);
 }
 /* 손을 떼면: 실제 줌을 맞춘 뒤, "A 기준 scale(s) + 이동 T" 를 "상자 중심 기준 scale(s)" 로 바꾸되 화면은 그대로 —
@@ -1406,11 +1454,17 @@ function endGesture(){
 }
 
 /* ── 터치 이벤트 배선 ── */
-let touchSeen=false;
+let touchSeen=false, lastTap=null, tapTimer=null;
 function onTouchStart(e){
   if(!touchSeen){ touchSeen=true; map.setOptions({draggable:false}); }   // 손가락을 쓰는 기기: 네이버 드래그는 끄고 앱이 맡는다 (마우스만 쓰는 PC 는 그대로)
   const t=e.touches;
-  if(t.length===1){ endGesture(); panStart(t[0].clientX,t[0].clientY,e.target); }
+  if(t.length===1){
+    endGesture();
+    const x=t[0].clientX, y=t[0].clientY, now=performance.now();
+    panStart(x,y,e.target);
+    /* 앞 탭 직후의 두 번째 탭이면 표시 — 그대로 떼면 두 번 탭(확대), 위아래로 끌면 한 손 줌 */
+    if(lastTap&&now-lastTap.t<TAP_MS&&Math.hypot(x-lastTap.x,y-lastTap.y)<TAP_PX){ gest.dbl=true; clearTimeout(tapTimer); tapTimer=null; lastTap=null; }
+  }
   else if(t.length===2){ endGesture(); twoBegin(t); }
   else endGesture();
 }
@@ -1419,7 +1473,13 @@ function onTouchMove(e){
   const t=e.touches;
   if(gest.mode==='pan'){
     if(t.length!==1) return;
-    if(panMove(t[0].clientX,t[0].clientY)){ e.preventDefault(); e.stopImmediatePropagation(); }
+    const g=gest, x=t[0].clientX, y=t[0].clientY;
+    if(g.dbl){   /* 두 번째 탭에서 끌기 = 한 손 줌: 아래로 끌면 확대, 위로 끌면 축소 (탭한 자리 고정) */
+      if(!g.moved){ if(Math.abs(y-g.y)<PAN_PX) return; g.moved=true; g.zoomG={mode:'zoom', m0:{x:g.x,y:g.y}, lm:{x:g.x,y:g.y}, base:mapAngle}; pinchStart(g.zoomG); }
+      pinchApply(g.zoomG, g.zoomG.s0*Math.pow(2,(y-g.y)/160), {x:g.x,y:g.y});
+      e.preventDefault(); e.stopImmediatePropagation(); return;
+    }
+    if(panMove(x,y)){ e.preventDefault(); e.stopImmediatePropagation(); }
     return;
   }
   if(t.length!==2) return;
@@ -1428,20 +1488,32 @@ function onTouchMove(e){
 }
 function onTouchEnd(e){
   if(!gest) return;
-  const t=e.touches, g=gest;
+  const t=e.touches, g=gest, now=performance.now();
   if(g.mode==='pan'){
     if(t.length!==0) return;
-    const moved=g.moved, quick=performance.now()-g.t0<350, onPin=g.target&&g.target.closest&&g.target.closest('.pin,.me');
+    const moved=g.moved, quick=now-g.t0<350, onPin=g.target&&g.target.closest&&g.target.closest('.pin,.me');
+    if(g.dbl){   /* 두 번째 탭 */
+      if(g.zoomG){ pinchEnd(g.zoomG); gest=null; }                                                                   // 한 손 줌 끝
+      else { gest=null; zoomAt({x:g.x,y:g.y}, +1); }                                                             // 두 번 탭 = 확대
+      e.preventDefault(); e.stopImmediatePropagation(); return;
+    }
     panEnd(true);
     if(moved){ e.preventDefault(); e.stopImmediatePropagation(); }   // 끌고 나서 뗀 건 탭이 아니다 (풍선이 닫히지 않게)
-    else if(quick&&!onPin) onMapTap();                               // 빈 곳을 짧게 탭 → 풍선 숨김 (네이버 click 은 터치 조작을 끄면 안 온다)
+    else if(quick){
+      if(g.twoTap){ zoomAt(g.twoTap, -1); e.preventDefault(); e.stopImmediatePropagation(); return; }   // 두 손가락 탭 = 축소
+      lastTap={t:now, x:g.x, y:g.y};
+      if(!onPin){ clearTimeout(tapTimer); tapTimer=setTimeout(()=>{ tapTimer=null; onMapTap(); }, TAP_MS); }   // 빈 곳 탭 → 풍선 숨김 (두 번 탭이면 취소)
+    }
     return;
   }
   const was=g.mode; endGesture();
   if(was!=='wait'){ e.preventDefault(); e.stopImmediatePropagation(); }
-  if(t.length===1) panStart(t[0].clientX,t[0].clientY);      // 남은 손가락으로 바로 끌기
+  if(t.length===1){   // 남은 손가락으로 바로 끌기. 두 손가락을 짧게 같이 댔다 떼는 중이면 두 손가락 탭 후보
+    panStart(t[0].clientX,t[0].clientY,e.target);
+    if(was==='wait'&&now-g.t0<TAP_MS) gest.twoTap=g.m0;
+  }
 }
-function onTouchCancel(){ if(gest&&gest.mode==='pan'){ panEnd(false); } else endGesture(); }
+function onTouchCancel(){ if(gest&&gest.mode==='pan'){ if(gest.zoomG) pinchEnd(gest.zoomG); panEnd(false); } else endGesture(); }
 if(TOUCH){
   const m=$('map');
   m.addEventListener('touchstart',onTouchStart,{passive:true,capture:true});
