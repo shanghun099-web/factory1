@@ -1300,7 +1300,7 @@ function resetRotation(){
    두 번 탭 = 그 자리 확대, 두 손가락 탭 = 축소, 두 번째 탭에서 손을 안 떼고 위아래로 끌면 = 한 손 줌.
    목록·전체 보기·내 위치로 옮길 때는 날아가듯(flyTo) 움직인다. */
 const TOUCH=('ontouchstart' in window)||navigator.maxTouchPoints>0;
-const TWIST_DEG=8, PINCH_PX=8, PAN_PX=5;
+const PAN_PX=5;
 const TAP_MS=300, TAP_PX=28;                // 두 번 탭 판정: 앞 탭에서 이 시간·거리 안
 const MAP_OVER=0.5;      // #map 이 래퍼 밖으로 나가 있는 비율 (CSS left/top:-50% 와 같은 값)
 const REST_MIN=0.595;    // 손을 뗀 뒤 남기는 배율 범위 [REST_MIN, 2*REST_MIN) = [0.6, 1.19)
@@ -1420,12 +1420,24 @@ function twoBegin(t){
   const m=midOf(t);
   gest={mode:'wait', a0:touchPairAngle(t), d0:touchPairDist(t), base:mapAngle, m0:m, lm:m, t0:performance.now()};
 }
+/* 회전/확대 판정: 각도(°)와 거리(px)를 그대로 비교하면 거리 쪽이 훨씬 쉽게 넘는다 (손가락을 비틀면 간격도 조금은 변함).
+   그래서 두 손가락이 "돌아간 길이"(각도 × 간격, px)와 "벌어진 길이"(px)를 같은 단위로 비교해 더 큰 쪽으로 정한다.
+   확대로 정해진 뒤라도 크게 비틀면(ZOOM_TO_ROT_DEG) 회전으로 바꿔 준다. */
+const TWO_DECIDE_PX=10, ZOOM_TO_ROT_DEG=18;
 function twoMove(t){
   const g=gest, ang=normAngle(touchPairAngle(t)-g.a0), d=touchPairDist(t);
   if(g.mode==='wait'){
-    if(Math.abs(ang)>=TWIST_DEG){ g.mode='rot'; $('mapwrap').classList.add('dragging'); }
-    else if(Math.abs(d-g.d0)>=PINCH_PX){ g.mode='zoom'; pinchStart(g); }
-    else return;
+    const rotPx=Math.abs(ang)*Math.PI/180*d, zoomPx=Math.abs(d-g.d0);
+    if(Math.max(rotPx,zoomPx)<TWO_DECIDE_PX) return;
+    if(rotPx>zoomPx){ g.mode='rot'; $('mapwrap').classList.add('dragging'); }
+    else { g.mode='zoom'; pinchStart(g); }
+  }
+  else if(g.mode==='zoom'&&Math.abs(ang)>=ZOOM_TO_ROT_DEG){
+    /* 확대 중 크게 비틀었다 → 확대는 여기서 마무리하고 회전으로. 지금 손가락 각도를 새 기준으로 잡아 튀지 않게 */
+    pinchEnd(g);
+    gest={mode:'rot', a0:touchPairAngle(t), d0:d, base:mapAngle, m0:midOf(t), lm:midOf(t), t0:g.t0};
+    $('mapwrap').classList.add('dragging');
+    return;
   }
   if(g.mode==='rot'){
     mapAngle=normAngle(g.base+ang); applyMapRotation();
