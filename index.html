@@ -338,6 +338,51 @@ input,textarea{font-family:inherit}
 #lock input:focus{outline:none;border-color:var(--amber)}
 #lock .row{display:flex;gap:8px}
 #lock .help{margin-top:10px;font-size:12.5px;color:var(--red);text-align:center;min-height:16px}
+
+/* ── 노하우 핀 탭 ── */
+.lp-tabs{display:flex;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:2px;flex:0 0 auto}
+.lp-tabs button{height:30px;padding:0 11px;border-radius:8px;font-size:13.5px;font-weight:800;color:var(--dim)}
+.lp-tabs button.on{background:var(--panel2);color:var(--text);box-shadow:0 1px 3px rgba(0,0,0,.3)}
+.lp-btn[hidden],.lp-head .sub[hidden]{display:none}
+/* 노하우 핀: 동그란 아이콘 핀 (배송 핀 물방울과 모양으로 구별) — 가운데가 좌표 */
+.kpin{position:relative;width:30px;height:30px;border-radius:50%;border:2px solid #fff;
+  display:flex;align-items:center;justify-content:center;font-size:15px;line-height:1;
+  box-shadow:0 2px 6px rgba(0,0,0,.5);transform-origin:50% 50%;transition:transform .22s cubic-bezier(.4,0,.2,1)}
+#mapwrap.dragging .kpin,#map.pinching .kpin{transition:none}
+.kpin.dim{opacity:.72}
+.kpin.sel{box-shadow:0 0 0 3px var(--blue),0 2px 6px rgba(0,0,0,.5)}
+.kpin.car{width:36px;height:36px;font-size:19px;border-color:var(--blue)}
+.kpin .lbl{
+  display:none;position:absolute;bottom:calc(100% + 7px);left:50%;transform:translateX(-50%);
+  background:var(--panel);color:#fff;border:1.5px solid var(--blue);border-radius:9px;
+  padding:5px 10px;font-size:12.5px;font-weight:800;line-height:1.2;white-space:nowrap;pointer-events:none;
+  box-shadow:0 3px 10px rgba(0,0,0,.5);
+}
+.kpin.sel .lbl{display:block}
+#map div:has(> .kpin){overflow:visible !important;}
+.kbadge{width:32px;height:32px;min-width:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:16px;border:1.5px solid rgba(255,255,255,.75)}
+.item .d{font-size:12px;color:var(--dim);flex:0 0 auto;font-variant-numeric:tabular-nums}
+.car-row{display:flex;align-items:center;gap:10px;padding:8px 6px;border-bottom:1px solid var(--line)}
+.car-row .txt{flex:1;min-width:0}
+.car-row .a{font-size:14px;font-weight:700}
+.car-row .m{font-size:12px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.car-row .lp-btn{height:32px}
+/* 노하우 카드 */
+#kdetail .body,#kmore .body{padding:6px 18px 18px}
+.kinds{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+.kchip{height:34px;padding:0 11px;border-radius:999px;border:1px solid var(--line);background:var(--panel2);font-size:13px;font-weight:700}
+.kchip.on{border-color:var(--blue);color:var(--blue);background:rgba(92,168,255,.12)}
+#kTitle{width:100%;height:46px;background:var(--bg);border:1px solid var(--line);border-radius:10px;color:var(--text);font-size:15px;padding:0 12px;margin-bottom:8px}
+#kTitle:focus,#kMemo:focus{outline:none;border-color:var(--blue)}
+#kAddr{font-size:12.5px;color:var(--dim);margin-bottom:8px;user-select:text;-webkit-user-select:text}
+#kMemo{width:100%;background:var(--bg);border:1px solid var(--line);border-radius:10px;color:var(--text);font-size:14px;padding:10px 12px;resize:none;height:70px;margin-bottom:10px}
+.codes{background:var(--bg);border:1px solid rgba(255,176,32,.35);border-radius:10px;padding:8px 12px;margin-bottom:12px;font-size:13px;max-height:150px;overflow-y:auto}
+.codes .h{color:var(--amber);font-weight:800;margin-bottom:4px}
+.codes .c{display:flex;justify-content:space-between;gap:10px;padding:3px 0;border-top:1px solid var(--line)}
+.codes .c span{color:var(--dim);min-width:0}
+.codes .c b{font-size:15px;user-select:text;-webkit-user-select:text;white-space:nowrap}
+#kmore .act{width:100%;margin-bottom:8px;justify-content:flex-start;padding:0 14px}
+#kmore .note{font-size:12.5px;color:var(--dim);line-height:1.6;margin-top:4px}
 </style>
 </head>
 <body>
@@ -368,11 +413,15 @@ input,textarea{font-family:inherit}
 <div id="listpanel">
   <div class="lp-head" id="lpHead">
     <span class="chev" id="lpChev">▾</span>
-    <b>배송 목록</b><span class="sub" id="lCount"></span>
+    <div class="lp-tabs"><button id="tabDeli" class="on">배송</button><button id="tabKnow">노하우</button></div>
+    <span class="sub" id="lCount"></span>
     <span class="spacer"></span>
     <button class="lp-btn" id="btnManual" title="주소 직접 입력">⌨️ 입력</button>
     <button class="lp-btn" id="btnPick" title="지도 위에 콕 찍어 추가">📌 콕</button>
     <button class="lp-btn" id="lClearDone" title="완료건 정리">🗑</button>
+    <button class="lp-btn" id="kPick" title="지도 위에 콕 찍어 노하우 핀 추가" hidden>📌 콕</button>
+    <button class="lp-btn" id="kHere" title="지금 내 위치에 노하우 핀 추가" hidden>📍 여기</button>
+    <button class="lp-btn" id="kMoreBtn" title="백업·보기 설정" hidden>⋯</button>
   </div>
   <div class="items" id="lItems"></div>
 </div>
@@ -416,6 +465,37 @@ input,textarea{font-family:inherit}
   <div class="body">
     <input id="mInput" placeholder="예) 역삼동 123-45 / 테헤란로 152" enterkeyhint="done">
     <div class="row"><button class="act primary" id="mAdd">지도에 추가</button></div>
+  </div>
+</div>
+
+<!-- 노하우 핀 카드 -->
+<div class="sheet" id="kdetail">
+  <div class="grip"></div>
+  <div class="sheet-head"><h2 id="kHead">노하우 핀</h2><span class="sub" id="kSub"></span></div>
+  <div class="body">
+    <div class="kinds" id="kKinds"></div>
+    <input id="kTitle" placeholder="이름 (예: 래미안 101동 뒤 주차 자리)" enterkeyhint="done" autocomplete="off">
+    <div id="kAddr"></div>
+    <textarea id="kMemo" placeholder="메모 (예: 밤 9시 이후 경비실 닫힘, 지하 2층 엘리베이터만 1층까지)"></textarea>
+    <div class="codes" id="kCodes" hidden></div>
+    <div class="row">
+      <button class="act primary" id="kSave">저장</button>
+      <button class="act nav" id="kNav">🚗 길안내</button>
+      <button class="act del" id="kDel">🗑</button>
+    </div>
+  </div>
+</div>
+
+<!-- 노하우 ⋯ 메뉴 -->
+<div class="sheet" id="kmore">
+  <div class="grip"></div>
+  <div class="sheet-head"><h2>노하우 핀 설정</h2><span class="sub" id="kmCount"></span></div>
+  <div class="body">
+    <button class="act" id="kShow">👁 배송 탭에서도 노하우 핀 보기: 켬</button>
+    <button class="act" id="kExport">💾 백업 파일 저장</button>
+    <button class="act" id="kImport">📂 백업 불러오기</button>
+    <input type="file" id="kFile" accept=".json,application/json" hidden>
+    <div class="note">노하우 핀은 이 폰(브라우저)에만 저장돼요. 가끔 백업 파일을 저장해 두세요. 불러오기는 지금 핀에 더해져요(같은 핀은 겹치지 않아요).</div>
   </div>
 </div>
 
@@ -620,8 +700,10 @@ function initMap(){
   bindDragPause();
   naver.maps.Event.addListener(map,'click',e=>{ if(pickMode&&e&&e.coord) pickAt(e.coord); else onMapTap(); });   /* 지도 빈 곳 클릭(마우스) → 풍선 숨김 / 콕 모드면 추가. 터치 탭은 onTouchEnd 에서 */
   items.forEach(addOverlay);
+  renderKnowPins();
   updateCounts();
-  if(items.length) fitAll();
+  if(items.length&&viewMode==='deli') fitAll();
+  else if(viewMode==='know'&&(know.length||myCar)) fitAll();
   else if(navigator.geolocation){
     navigator.geolocation.getCurrentPosition(p=>{
       map.setCenter(LL(p.coords.latitude,p.coords.longitude));
@@ -689,7 +771,8 @@ function mercLL(x,y,z){
   return LL(Math.atan(Math.sinh(Math.PI*(1-2*y/n)))*180/Math.PI, x/n*360-180);
 }
 function fitAll(){
-  if(!items.length){toast('등록된 배송지가 없어요');return}
+  const pts=viewMode==='know' ? know.concat(myCar?[myCar]:[]) : items;   // 노하우 탭이면 노하우 핀(+내 차) 기준
+  if(!pts.length){toast(viewMode==='know'?'등록된 노하우 핀이 없어요':'등록된 배송지가 없어요');return}
   follow=false;   // GPS 따라가기를 끈다 (안 그러면 곧바로 내 위치로 되돌아감)
   const lp=$('listpanel').offsetHeight||0;
   const M={top:70,right:30,bottom:lp+90,left:30};
@@ -699,7 +782,7 @@ function fitAll(){
   /* 핀 → 최대 줌(21) 픽셀 → 화면 방향으로 회전 → 감싸는 사각형 */
   const Z=21;
   let x0=Infinity,y0=Infinity,x1=-Infinity,y1=-Infinity;
-  items.forEach(it=>{
+  pts.forEach(it=>{
     const o=mercPx(it.lat,it.lng,Z);
     const sx=o.x*cos-o.y*sin, sy=o.x*sin+o.y*cos;
     if(sx<x0)x0=sx; if(sx>x1)x1=sx; if(sy<y0)y0=sy; if(sy>y1)y1=sy;
@@ -878,9 +961,10 @@ function openSheet(id){
   $(id).classList.add('open');
 }
 function closeSheets(){
-  ['detail','manual'].forEach(i=>$(i).classList.remove('open'));
+  ['detail','manual','kdetail','kmore'].forEach(i=>$(i).classList.remove('open'));
   $('dim').classList.remove('show');
   if(selectedId){const it=items.find(i=>i.id===selectedId);selectedId=null;if(it)refreshPin(it)}
+  if(typeof knowSheetClosed==='function') knowSheetClosed();
 }
 $('dim').onclick=closeSheets;
 
@@ -1020,6 +1104,7 @@ function listCountLabel(){
   $('lCount').textContent=items.length?done+' / '+items.length+' 완료':'';
 }
 function renderList(){
+  if(viewMode==='know'){ renderKnowList(); return; }
   const box=$('lItems'); box.innerHTML='';
   listCountLabel();
   if(!items.length){box.innerHTML='<div class="empty">🎤 마이크를 누르고 주소를 말해보세요</div>';return}
@@ -1050,16 +1135,20 @@ function renderList(){
 /* ───────── 지도 위에 콕 찍어 추가 ─────────
    📌 콕 을 누르면 다음 한 번의 지도 탭이 배송지가 된다 (한 번 찍으면 자동 해제, 다시 누르면 취소).
    주소는 카카오 좌표→주소로 채우고(도로명 우선, 건물명이 있으면 같이), 못 구하면 위경도로 적어 둔다 */
-let pickMode=false;
+let pickMode=false;   // false | 'deli'(배송지 추가) | 'know'(노하우 핀 추가)
 function setPickMode(on){
-  pickMode=on;
-  $('btnPick').classList.toggle('on',on); $('pickHint').classList.toggle('show',on);
-  if(on&&navigator.vibrate)navigator.vibrate(15);
+  pickMode=on===true?'deli':on;
+  $('btnPick').classList.toggle('on',pickMode==='deli'); $('kPick').classList.toggle('on',pickMode==='know');
+  $('pickHint').textContent=pickMode==='know'?'📌 노하우 핀 자리를 콕 찍으세요 (한 번 더 누르면 취소)':'📌 지도에서 배송지를 콕 찍으세요 (한 번 더 누르면 취소)';
+  $('pickHint').classList.toggle('show',!!pickMode);
+  if(pickMode&&navigator.vibrate)navigator.vibrate(15);
 }
-$('btnPick').onclick=()=>setPickMode(!pickMode);
+$('btnPick').onclick=()=>setPickMode(pickMode==='deli'?false:'deli');
 function pickAt(ll){
+  const mode=pickMode;
   setPickMode(false);
   const lat=ll.lat(), lng=ll.lng();
+  if(mode==='know'){ newKnow(lat,lng,'콕'); return; }
   const fallback=()=>commit('콕 찍음', '지도에서 찍은 위치 ('+lat.toFixed(5)+', '+lng.toFixed(5)+')', lat, lng);
   if(!geocoder){ fallback(); return; }
   geocoder.coord2Address(lng, lat, (r,st)=>{
@@ -1159,6 +1248,7 @@ function onPos(p){
   updateMeMotion(p.coords);
   if(follow)map.panTo(myPos);
   updateNavchip();
+  knowOnPos();
 }
 /* ── 이동 방향 기울기 + 달리기 ──
    heading(북 기준 시계방향 각도)·speed(m/s)는 움직일 때만 유효하다 (멈추면 null/NaN).
@@ -1268,6 +1358,7 @@ function applyPinCounterRotate(el){
 }
 function applyAllPinsCounterRotate(){
   Object.values(overlays).forEach(o=>applyPinCounterRotate(o.el));
+  if(typeof kovers!=='undefined') Object.values(kovers).forEach(o=>applyPinCounterRotate(o.el));
   applyMeTransform();
 }
 function normAngle(a){
@@ -1540,7 +1631,7 @@ function onTouchEnd(e){
   const t=e.touches, g=gest, now=performance.now();
   if(g.mode==='pan'){
     if(t.length!==0) return;
-    const moved=g.moved, quick=now-g.t0<350, onPin=g.target&&g.target.closest&&g.target.closest('.pin,.me');
+    const moved=g.moved, quick=now-g.t0<350, onPin=g.target&&g.target.closest&&g.target.closest('.pin,.me,.kpin');
     if(g.dbl){   /* 두 번째 탭 */
       if(g.zoomG){ pinchEnd(g.zoomG); gest=null; }                                                                   // 한 손 줌 끝
       else { gest=null; zoomAt({x:g.x,y:g.y}, +1); }                                                             // 두 번 탭 = 확대
@@ -1611,6 +1702,309 @@ function updateCounts(){
   if(typeof updateNavchip==='function'&&myPos)updateNavchip();
   else syncLabel();
 }
+
+/* ═══════════ 노하우 핀 ═══════════
+   배송 핀(하루 쓰고 정리)과 달리 계속 쌓이는 기록: 주차 자리·출입구·엘리베이터·경비실·택배함·주의할 곳.
+   - 목록 패널 위 [배송 | 노하우] 탭으로 바꿔 본다. 노하우 탭에선 마이크를 숨기고 📌 콕 / 📍 여기 로 추가한다.
+   - 🚗 내 차: 주차 위치 하나만 기억 (다시 저장하면 바뀜).
+   - 출입코드 노트(smile5589)와 같은 github.io 주소라 그 기록(localStorage 'acn5')을 읽기만 해서 핀 카드에 보여 준다 — 절대 쓰지 않는다.
+   - 저장은 이 브라우저 localStorage 뿐이라 ⋯ 에서 백업 파일 저장/불러오기. */
+const LS_KNOW='malpin.know', LS_CAR='malpin.mycar', LS_MODE='malpin.mode', LS_KSHOW='malpin.knowshow';
+const KINDS=[
+  {k:'park', e:'🅿️', n:'주차',     c:'#2F6FD6'},
+  {k:'door', e:'🚪', n:'출입구',   c:'#1F9D63'},
+  {k:'elev', e:'🛗', n:'엘리베이터', c:'#7B57D1'},
+  {k:'guard',e:'👮', n:'경비실',   c:'#C98500'},
+  {k:'box',  e:'📦', n:'택배함',   c:'#9A6B35'},
+  {k:'warn', e:'⚠️', n:'주의',     c:'#D64545'},
+  {k:'etc',  e:'📝', n:'기타',     c:'#5D6675'}
+];
+const kindOf=k=>KINDS.find(x=>x.k===k)||KINDS[KINDS.length-1];
+let know=[], myCar=null, viewMode='deli', knowShow=true;
+let kovers={};            // id -> {ov, el}  ('car' 은 내 차)
+let kSel=null;            // 카드가 열린 핀 id (새 핀이면 '_new')
+let kDraft=null;          // 카드에서 고치는 중인 값
+let kTempOv=null;         // 아직 저장 안 한 새 핀 표시
+function knowLoad(){
+  try{know=JSON.parse(localStorage.getItem(LS_KNOW)||'[]')}catch(e){know=[]}
+  try{myCar=JSON.parse(localStorage.getItem(LS_CAR)||'null')}catch(e){myCar=null}
+  viewMode=localStorage.getItem(LS_MODE)==='know'?'know':'deli';
+  knowShow=localStorage.getItem(LS_KSHOW)!=='0';
+}
+function knowSave(){
+  try{
+    localStorage.setItem(LS_KNOW,JSON.stringify(know));
+    if(myCar)localStorage.setItem(LS_CAR,JSON.stringify(myCar)); else localStorage.removeItem(LS_CAR);
+  }catch(e){ toast('저장 공간이 부족해요 — 백업 파일을 저장해 두세요','err'); }
+}
+knowLoad();
+
+/* 좌표 → 주소 (카카오). 못 구하면 위경도 */
+function addrOf(lat,lng,cb){
+  const fb=()=>cb('('+lat.toFixed(5)+', '+lng.toFixed(5)+')');
+  if(!geocoder) return fb();
+  geocoder.coord2Address(lng,lat,(r,st)=>{
+    if(st!==kakao.maps.services.Status.OK||!r||!r[0]) return fb();
+    const road=r[0].road_address, jibun=r[0].address;
+    let name=road?road.address_name:(jibun?jibun.address_name:'');
+    if(road&&road.building_name) name=road.building_name+' ('+name+')';
+    name?cb(name):fb();
+  });
+}
+const myDist=p=>myPos?distM(myPos,LL(p.lat,p.lng)):null;
+function agoTxt(ts){
+  const m=Math.round((Date.now()-ts)/60000);
+  if(m<1)return '방금'; if(m<60)return m+'분 전';
+  const h=Math.round(m/60); if(h<24)return h+'시간 전';
+  return Math.round(h/24)+'일 전';
+}
+
+/* ── 지도 위 노하우 핀 ── */
+function kpinEl(p,isCar){
+  const k=isCar?{e:'🚗',c:'#0E1116'}:kindOf(p.kind);
+  const el=document.createElement('div');
+  el.className='kpin'+(isCar?' car':'');
+  el.style.background=k.c;
+  el.textContent=k.e;
+  const lbl=document.createElement('div'); lbl.className='lbl'; lbl.textContent=isCar?'내 차':(p.title||shortAddr(p.addr)||k.n);
+  el.appendChild(lbl);
+  return el;
+}
+function kpinAdd(id,p,isCar){
+  const el=kpinEl(p,isCar);
+  el.onclick=e=>{ e.stopPropagation(); if(isCar){ goToPin(p.lat,p.lng); toast('🚗 내 차 · '+agoTxt(p.ts)+' 저장'); } else openKnow(id); };
+  const ov=new naver.maps.Marker({position:LL(p.lat,p.lng), map, icon:{content:el, anchor:new naver.maps.Point(isCar?18:15,isCar?18:15)}, clickable:true, zIndex:isCar?4:1});
+  kovers[id]={ov,el};
+  applyPinCounterRotate(el);
+}
+function renderKnowPins(){
+  if(!map) return;
+  Object.values(kovers).forEach(o=>o.ov.setMap(null)); kovers={};
+  const show=viewMode==='know'||knowShow;
+  if(show) know.forEach(p=>kpinAdd(p.id,p,false));
+  if(myCar&&show) kpinAdd('car',myCar,true);
+  syncKnowPins();
+}
+function syncKnowPins(){
+  Object.entries(kovers).forEach(([id,o])=>{
+    o.el.classList.toggle('dim',viewMode!=='know');
+    o.el.classList.toggle('sel',id===kSel);
+    o.ov.setZIndex(id===kSel?12:(id==='car'?4:1));
+  });
+}
+
+/* ── 탭 전환 ── */
+function setViewMode(m){
+  if(pickMode) setPickMode(false);
+  viewMode=m; localStorage.setItem(LS_MODE,m);
+  $('tabDeli').classList.toggle('on',m==='deli'); $('tabKnow').classList.toggle('on',m==='know');
+  ['btnManual','btnPick','lClearDone','lCount'].forEach(id=>$(id).hidden=m!=='deli');
+  ['kPick','kHere','kMoreBtn'].forEach(id=>$(id).hidden=m!=='know');
+  $('micbtn').style.display=m==='know'?'none':'';
+  /* 배송 핀은 노하우 탭에서 흐리게 — 무엇을 보고 있는지 헷갈리지 않게 */
+  Object.values(overlays).forEach(o=>o.el.style.opacity=m==='know'?'.45':'');
+  if(m==='deli'){ $('transcript').className=''; }
+  renderKnowPins(); renderList();
+  if(listening&&m==='know') micOff();
+}
+$('tabDeli').onclick=e=>{ e.stopPropagation(); if(viewMode!=='deli') setViewMode('deli'); };
+$('tabKnow').onclick=e=>{ e.stopPropagation(); if(viewMode!=='know'){ setViewMode('know'); if($('listpanel').classList.contains('collapsed')) setPanelCollapsed(false); } };
+
+/* ── 목록 ── */
+let lastKnowRender=0;
+function renderKnowList(){
+  lastKnowRender=Date.now();
+  const box=$('lItems'); box.innerHTML='';
+  /* 🚗 내 차 줄 */
+  const car=document.createElement('div'); car.className='car-row';
+  if(myCar){
+    const d=myDist(myCar);
+    car.innerHTML='<div class="kbadge" style="background:#0E1116">🚗</div><div class="txt"><div class="a">내 차</div><div class="m"></div></div>'+
+      '<button class="lp-btn" data-a="go">🧭 찾아가기</button><button class="lp-btn" data-a="re">📍 다시</button>';
+    car.querySelector('.m').textContent=agoTxt(myCar.ts)+' 저장'+(d!=null?' · '+fmtDist(d):'')+' · '+shortAddr(myCar.addr);
+    car.querySelector('[data-a="go"]').onclick=()=>navTo({addr:'내 차',lat:myCar.lat,lng:myCar.lng});
+    car.querySelector('[data-a="re"]').onclick=saveCarHere;
+    car.querySelector('.txt').onclick=()=>goToPin(myCar.lat,myCar.lng);
+  }else{
+    car.innerHTML='<div class="kbadge" style="background:#0E1116">🚗</div><div class="txt"><div class="a">내 차 위치</div><div class="m">차 세우고 한 번 누르면 기억해요</div></div><button class="lp-btn" data-a="save">📍 여기 저장</button>';
+    car.querySelector('[data-a="save"]').onclick=saveCarHere;
+  }
+  box.appendChild(car);
+  if(!know.length){
+    const e=document.createElement('div'); e.className='empty'; e.style.padding='18px 0';
+    e.textContent='📌 콕 또는 📍 여기 로 주차 자리·출입구 같은 노하우를 남겨 보세요';
+    box.appendChild(e); return;
+  }
+  /* 가까운 순 (내 위치 없으면 최근 순) */
+  const list=know.map(p=>({p,d:myDist(p)})).sort((a,b)=>a.d!=null&&b.d!=null?a.d-b.d:(b.p.uts||b.p.ts)-(a.p.uts||a.p.ts));
+  list.forEach(({p,d})=>{
+    const k=kindOf(p.kind), row=document.createElement('div');
+    row.className='item'+(p.id===kSel?' sel':''); row.dataset.kid=p.id;
+    row.innerHTML='<div class="kbadge" style="background:'+k.c+'">'+k.e+'</div><div class="txt"><div class="a"></div><div class="m"></div></div>'+
+      '<span class="d">'+(d!=null?fmtDist(d):'')+'</span><div class="btns"><button class="sb nav" title="길안내">🚗</button></div>';
+    row.querySelector('.a').textContent=p.title||shortAddr(p.addr)||k.n;
+    row.querySelector('.m').textContent=k.n+(p.memo?' · '+p.memo:'');
+    row.querySelector('.txt').onclick=()=>{ goToPin(p.lat,p.lng); kSel=p.id; syncKnowPins(); setTimeout(()=>{ if(kSel===p.id&&!$('kdetail').classList.contains('open')){kSel=null;syncKnowPins()} },2500); };
+    row.querySelector('.kbadge').onclick=()=>openKnow(p.id);
+    row.querySelector('.sb.nav').onclick=e=>{ e.stopPropagation(); navTo({addr:p.title||p.addr,lat:p.lat,lng:p.lng}); };
+    box.appendChild(row);
+  });
+}
+function knowOnPos(){
+  if(viewMode==='know'&&Date.now()-lastKnowRender>15000&&!$('kdetail').classList.contains('open')) renderKnowList();
+}
+
+/* ── 내 차 ── */
+function saveCarHere(){
+  const done=(lat,lng)=>{
+    myCar={lat,lng,ts:Date.now(),addr:''}; knowSave(); renderKnowPins(); renderList();
+    toast('🚗 내 차 위치 저장','ok'); if(navigator.vibrate)navigator.vibrate(40);
+    addrOf(lat,lng,a=>{ if(myCar&&myCar.lat===lat){ myCar.addr=a; knowSave(); if(viewMode==='know')renderList(); } });
+  };
+  if(myPos) return done(myPos.lat(),myPos.lng());
+  if(!navigator.geolocation){ toast('이 기기는 위치를 지원하지 않아요','err'); return; }
+  toast('내 위치 찾는 중…');
+  navigator.geolocation.getCurrentPosition(p=>done(p.coords.latitude,p.coords.longitude),
+    ()=>toast('위치를 못 찾았어요 — 📍 로 위치를 켜고 다시 눌러 주세요','err'),{enableHighAccuracy:true,timeout:12000,maximumAge:10000});
+}
+
+/* ── 새 핀 / 카드 ── */
+$('kPick').onclick=()=>setPickMode(pickMode==='know'?false:'know');
+$('kHere').onclick=()=>{
+  if(myPos) return newKnow(myPos.lat(),myPos.lng(),'여기');
+  if(!navigator.geolocation){ toast('이 기기는 위치를 지원하지 않아요','err'); return; }
+  toast('내 위치 찾는 중…');
+  navigator.geolocation.getCurrentPosition(p=>newKnow(p.coords.latitude,p.coords.longitude,'여기'),
+    ()=>toast('위치를 못 찾았어요 — 📌 콕 으로 찍어 주세요','err'),{enableHighAccuracy:true,timeout:12000,maximumAge:10000});
+};
+function newKnow(lat,lng,how){
+  kDraft={id:'_new',kind:how==='여기'?'park':'etc',title:'',memo:'',addr:'',lat,lng};
+  fillKnowSheet(true);              // 시트를 먼저 연다 (열 때 예전 임시 핀은 정리됨)
+  const el=kpinEl(kDraft,false); el.classList.add('sel');
+  kTempOv=new naver.maps.Marker({position:LL(lat,lng),map,icon:{content:el,anchor:new naver.maps.Point(15,15)},zIndex:13});
+  applyPinCounterRotate(el); kTempEl=el;
+  goToPin(lat,lng);
+  addrOf(lat,lng,a=>{ if(kDraft&&kDraft.id==='_new'&&kDraft.lat===lat){ kDraft.addr=a; $('kAddr').textContent='📍 '+a; refreshCodes(); } });
+}
+let kTempEl=null;
+function openKnow(id){
+  const p=know.find(x=>x.id===id); if(!p) return;
+  kDraft=Object.assign({},p);
+  fillKnowSheet(false);
+  goToPin(p.lat,p.lng);
+}
+function fillKnowSheet(isNew){
+  const dr=kDraft;
+  openSheet('kdetail');            // openSheet 안의 closeSheets 가 kSel·kDraft 를 지우므로 먼저 열고 되돌린다
+  kDraft=dr;
+  kSel=kDraft.id; syncKnowPins();
+  $('kHead').textContent=isNew?'새 노하우 핀':'노하우 핀';
+  const d=myDist(kDraft);
+  $('kSub').textContent=isNew?'':(d!=null?fmtDist(d)+' · ':'')+agoTxt(kDraft.uts||kDraft.ts)+' 저장';
+  const box=$('kKinds'); box.innerHTML='';
+  KINDS.forEach(k=>{
+    const b=document.createElement('button'); b.className='kchip'+(kDraft.kind===k.k?' on':''); b.textContent=k.e+' '+k.n;
+    b.onclick=()=>{ kDraft.kind=k.k; box.querySelectorAll('.kchip').forEach(x=>x.classList.toggle('on',x===b)); if(kTempEl&&kDraft.id==='_new'){ kTempEl.style.background=k.c; kTempEl.firstChild.textContent=k.e; } };
+    box.appendChild(b);
+  });
+  $('kTitle').value=kDraft.title||'';
+  $('kMemo').value=kDraft.memo||'';
+  $('kAddr').textContent=kDraft.addr?'📍 '+kDraft.addr:'📍 주소 찾는 중…';
+  $('kDel').style.display=isNew?'none':'';
+  $('kSave').textContent=isNew?'저장':'저장';
+  refreshCodes();
+}
+function knowSheetClosed(){
+  if(kTempOv){ kTempOv.setMap(null); kTempOv=null; kTempEl=null; }
+  if(kSel){ kSel=null; syncKnowPins(); }
+  kDraft=null;
+}
+$('kTitle').oninput=()=>{ if(kDraft){ kDraft.title=$('kTitle').value; refreshCodes(); } };
+$('kTitle').onkeydown=e=>{ if(e.key==='Enter') $('kTitle').blur(); };
+$('kMemo').oninput=()=>{ if(kDraft) kDraft.memo=$('kMemo').value; };
+$('kSave').onclick=()=>{
+  if(!kDraft) return;
+  const now=Date.now(), v={kind:kDraft.kind, title:$('kTitle').value.trim(), memo:$('kMemo').value.trim(), addr:kDraft.addr, lat:kDraft.lat, lng:kDraft.lng};
+  if(kDraft.id==='_new'){
+    const p=Object.assign({id:'k'+now.toString(36)+Math.random().toString(36).slice(2,5), ts:now, uts:now}, v);
+    know.push(p); toast(kindOf(p.kind).e+' 노하우 핀 저장','ok');
+  }else{
+    const p=know.find(x=>x.id===kDraft.id); if(p){ Object.assign(p,v,{uts:now}); toast('고친 내용 저장','ok'); }
+  }
+  knowSave(); closeSheets(); renderKnowPins(); renderList();
+  if(navigator.vibrate)navigator.vibrate(40);
+};
+$('kNav').onclick=()=>{ if(kDraft) navTo({addr:$('kTitle').value.trim()||kDraft.addr||'노하우 핀',lat:kDraft.lat,lng:kDraft.lng}); };
+$('kDel').onclick=()=>{
+  if(!kDraft||kDraft.id==='_new') return;
+  if(!confirm('이 노하우 핀을 지울까요?')) return;
+  know=know.filter(x=>x.id!==kDraft.id); knowSave(); closeSheets(); renderKnowPins(); renderList(); toast('지웠어요');
+};
+
+/* ── 출입코드 노트(acn5) 읽기 — 핀 주소나 이름이 단지 주소·이름과 겹치면 그 단지 코드를 보여 준다 ── */
+function acnComplexes(){
+  try{ const d=JSON.parse(localStorage.getItem('acn5')||'null'); const out=[];
+    (d&&d.regions||[]).forEach(r=>(r.complexes||[]).forEach(c=>out.push({region:r.name,name:c.name||'',addr:c.addr||'',codes:c.codes||[]})));
+    return out; }catch(e){ return []; }
+}
+const squash=s=>String(s||'').replace(/\s+/g,'').replace(/[()·,]/g,'');
+function refreshCodes(){
+  const box=$('kCodes'); if(!kDraft){box.hidden=true;return}
+  const a=squash(kDraft.addr), t=squash($('kTitle').value);
+  const hit=acnComplexes().filter(c=>{
+    const ca=squash(c.addr), cn=squash(c.name);
+    return (ca.length>=4&&a.includes(ca)) || (cn.length>=2&&(t.includes(cn)||a.includes(cn)));
+  }).slice(0,3);
+  if(!hit.length){ box.hidden=true; box.innerHTML=''; return; }
+  box.innerHTML='';
+  hit.forEach(c=>{
+    const h=document.createElement('div'); h.className='h'; h.textContent='🔑 '+c.name+(c.addr?' · '+c.addr:''); box.appendChild(h);
+    c.codes.slice(0,8).forEach(k=>{
+      const r=document.createElement('div'); r.className='c';
+      const s=document.createElement('span'); s.textContent=[k.section,k.sublabel].filter(Boolean).join(' · ')||'출입코드';
+      const b=document.createElement('b'); b.textContent=k.value||'';
+      r.append(s,b); box.appendChild(r);
+    });
+  });
+  box.hidden=false;
+}
+
+/* ── ⋯ 설정: 보기·백업 ── */
+function syncKShowBtn(){ $('kShow').textContent='👁 배송 탭에서도 노하우 핀 보기: '+(knowShow?'켬':'끔'); }
+$('kMoreBtn').onclick=()=>{ $('kmCount').textContent='핀 '+know.length+'개'+(myCar?' + 내 차':''); syncKShowBtn(); openSheet('kmore'); };
+$('kShow').onclick=()=>{ knowShow=!knowShow; localStorage.setItem(LS_KSHOW,knowShow?'1':'0'); syncKShowBtn(); renderKnowPins(); };
+$('kExport').onclick=()=>{
+  const data={app:'malpin-know',v:1,saved:new Date().toISOString(),know,myCar};
+  const blob=new Blob([JSON.stringify(data,null,1)],{type:'application/json'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
+  const d=new Date(); a.download='말핀_노하우_'+d.getFullYear()+String(d.getMonth()+1).padStart(2,'0')+String(d.getDate()).padStart(2,'0')+'.json';
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),4000);
+  toast('백업 파일 저장 — 다운로드 폴더를 확인하세요','ok');
+};
+$('kImport').onclick=()=>$('kFile').click();
+$('kFile').onchange=()=>{
+  const f=$('kFile').files[0]; if(!f) return;
+  const r=new FileReader();
+  r.onload=()=>{
+    try{
+      const d=JSON.parse(r.result); if(!d||!Array.isArray(d.know)) throw 0;
+      let add=0;
+      d.know.forEach(p=>{
+        if(!p||typeof p.lat!=='number'||typeof p.lng!=='number') return;
+        const cur=know.find(x=>x.id===p.id);
+        if(!cur){ know.push(p); add++; }
+        else if((p.uts||0)>(cur.uts||0)) Object.assign(cur,p);
+      });
+      if(!myCar&&d.myCar) myCar=d.myCar;
+      knowSave(); renderKnowPins(); renderList(); closeSheets();
+      toast('불러오기 완료 — 새 핀 '+add+'개','ok');
+    }catch(e){ toast('말핀 노하우 백업 파일이 아니에요','err'); }
+    $('kFile').value='';
+  };
+  r.readAsText(f);
+};
+
+setViewMode(viewMode);
 
 boot();
 </script>
