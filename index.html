@@ -2151,16 +2151,28 @@ function gemModels(){
   const first=['gemini-2.5-flash','gemini-2.0-flash','gemini-1.5-flash'].includes(m)?m:'gemini-2.5-flash';
   return [first,'gemini-flash-latest'].filter((v,i,a)=>a.indexOf(v)===i);   // 모델 이름이 없어지면(404) 최신 별칭으로
 }
+/* 송장에는 주소가 두 개(받는 분·보내는 분) 있다. 받는 분만 달라고 하면 보내는 분 주소를 집어 오는 일이 있어서
+   (2026-11 실제 사용에서 확인) 두 주소를 따로 읽게 한 뒤 받는 분 것만 쓴다. 둘을 나란히 적게 하면 AI 가 스스로 구별한다. */
 const SCAN_PROMPT=
-`이 사진은 택배 상자에 붙은 송장(운송장) 사진입니다. 사진에 보이는 송장마다 아래 4가지만 읽어 주세요.
-- addr: "받는 분" 주소에서 지도 검색에 쓸 기본 주소만. 시·구 + 도로명 + 건물번호(예: 서울 강남구 일원로 12). 도로명이 없으면 시·구·동 + 지번(예: 서울 강남구 일원동 615-1). 아파트·건물 이름, 동·호수, 층은 넣지 마세요.
+`이 사진은 택배 상자에 붙은 송장(운송장) 사진입니다. 송장에는 주소가 두 개 있습니다.
+① 받는 분(받는분·받으시는 분·수하인·수취인·To) 주소 = 택배가 배달될 곳. 보통 송장에서 글자가 가장 크고 굵게 인쇄되어 있습니다.
+② 보내는 분(보내는분·보내시는 분·송하인·발송인·From) 주소 = 판매자·쇼핑몰·물류센터 주소. 보통 작은 글씨로 따로 있습니다.
+각 주소 옆의 "받는분 / 보내는분" 같은 글씨(칸 이름)를 보고 반드시 구별하세요. 칸 이름이 안 보이면 더 크게 인쇄된 쪽이 받는 분입니다.
+
+사진에 보이는 송장마다 아래를 읽어 주세요.
+- from_addr: 보내는 분 주소 (구별용으로만 씁니다. 안 보이면 빈 문자열)
+- to_label: 받는 분 주소를 고른 근거가 된 칸 이름 그대로 (예: "받는분", "수하인"). 칸 이름이 없어 글자 크기로 골랐으면 "크기"
+- addr: 받는 분 주소에서 지도 검색에 쓸 기본 주소만. 시·구 + 도로명 + 건물번호(예: 서울 강남구 일원로 12). 도로명이 없으면 시·구·동 + 지번(예: 서울 강남구 일원동 615-1). 아파트·건물 이름, 동·호수, 층은 넣지 마세요.
 - place: 받는 분 주소에 있는 아파트·건물·상호 이름 (예: 래미안 개포 루체하임). 없으면 빈 문자열.
-- detail: 동·호수·층 같은 나머지 상세 주소 (예: 101동 1203호). 없으면 빈 문자열.
+- detail: 받는 분의 동·호수·층 같은 나머지 상세 주소 (예: 101동 1203호). 없으면 빈 문자열.
 - waybill: 운송장 번호 숫자만 (하이픈·공백 빼고). 안 보이면 빈 문자열.
-꼭 지킬 것: "보내는 분" 주소는 절대 넣지 마세요. 사람 이름과 전화번호는 읽지도 적지도 마세요. 흐려서 확실하지 않은 글자는 지어내지 말고 보이는 만큼만 적으세요. 송장이 없거나 받는 분 주소를 못 읽으면 labels 를 빈 배열로 주세요.`;
+꼭 지킬 것: addr·place·detail 에는 받는 분 주소만 넣으세요. 보내는 분 주소를 addr 에 넣으면 안 됩니다. 어느 쪽이 받는 분인지 확신이 없으면 addr 를 빈 문자열로 두세요.
+사람 이름과 전화번호는 읽지도 적지도 마세요. 흐려서 확실하지 않은 글자는 지어내지 말고 보이는 만큼만 적으세요. 송장이 없으면 labels 를 빈 배열로 주세요.`;
 const SCAN_SCHEMA={type:'OBJECT',properties:{labels:{type:'ARRAY',items:{type:'OBJECT',
-  properties:{addr:{type:'STRING'},place:{type:'STRING'},detail:{type:'STRING'},waybill:{type:'STRING'}},
-  required:['addr','place','detail','waybill']}}},required:['labels']};
+  properties:{from_addr:{type:'STRING'},to_label:{type:'STRING'},addr:{type:'STRING'},place:{type:'STRING'},detail:{type:'STRING'},waybill:{type:'STRING'}},
+  propertyOrdering:['from_addr','to_label','addr','place','detail','waybill'],     // 보내는 분을 먼저 적게 해 헷갈리지 않게
+  required:['from_addr','to_label','addr','place','detail','waybill']}}},required:['labels']};
+const SCAN_FAR_KM=15;      // 지금 위치(또는 지도 가운데)에서 이보다 먼 주소는 보내는 분 주소일 수 있어 체크를 꺼 둔다
 
 let scanRows=[];      // 확인 목록 한 줄 = 송장 하나. 사진을 읽기 전엔 사진당 한 줄(st:'wait')로 자리만 잡는다
 let scanBusy=false;
@@ -2224,7 +2236,7 @@ async function gemRead(photo,onWait){
   for(let mi=0; mi<models.length; mi++){
     const model=models[mi];
     const gc={responseMimeType:'application/json', responseSchema:SCAN_SCHEMA, temperature:0};
-    if(/2\.5|latest/.test(model)) gc.thinkingConfig={thinkingBudget:0};   // 글자 읽기라 '생각' 없이 빠르게
+    if(/2\.5|latest/.test(model)) gc.thinkingConfig={thinkingBudget:512};   // 받는 분/보내는 분을 견줘 볼 만큼만 짧게 생각
     for(let tries=0; ; tries++){
       let res;
       try{
@@ -2256,16 +2268,30 @@ function scanLabels(data){
   let o; try{ o=JSON.parse(txt); }catch(e){ return []; }
   const arr=Array.isArray(o)?o:(o&&Array.isArray(o.labels)?o.labels:[]);
   const s=v=>String(v==null?'':v).replace(/\s+/g,' ').trim();
-  return arr.map(l=>({addr:s(l&&l.addr), place:s(l&&l.place), detail:s(l&&l.detail), waybill:s(l&&l.waybill).replace(/\D/g,'')}))
-            .filter(l=>l.addr||l.place||l.waybill);
+  const key=v=>v.replace(/\s+/g,'').replace(/^(서울특별시|서울시|서울)/,'');
+  return arr.map(l=>{
+    const o={addr:s(l&&l.addr), place:s(l&&l.place), detail:s(l&&l.detail), waybill:s(l&&l.waybill).replace(/\D/g,''), from:s(l&&l.from_addr)};
+    /* 받는 분 주소가 보내는 분 주소와 같으면(앞부분이 겹치면) AI 가 헷갈린 것 — 꽂지 않고 확인하게 */
+    o.same=!!(o.addr&&o.from&&(key(o.from).startsWith(key(o.addr))||key(o.addr).startsWith(key(o.from))));
+    return o;
+  }).filter(l=>l.addr||l.place||l.waybill);
 }
 /* 읽은 주소 → 지도 위치 (기본 주소로 못 찾으면 건물 이름으로 한 번 더) */
 async function scanFind(x){
   x.st='find'; x.dup=''; rvRender();
   let f=x.addr?await resolveAddress(x.addr):null;
   if(!f&&x.place) f=await resolveAddress(x.place);
-  if(f){ x.lat=f.lat; x.lng=f.lng; x.name=f.name; x.st='ok'; x.on=true; scanDupCheck(x); }
+  if(f){ x.lat=f.lat; x.lng=f.lng; x.name=f.name; x.st='ok'; x.on=true; scanFarCheck(x); if(!x.warn) scanDupCheck(x); }   // 보내는 분 의심이 먼저, 그다음 중복
   else{ x.st=(x.addr||x.place)?'nf':'unread'; x.on=false; }
+}
+/* 보내는 분 주소를 잘못 읽은 것 걸러내기 — ① AI 가 읽은 보내는 분 주소와 같거나 ② 지금 있는 곳에서 너무 먼 주소
+   (보내는 곳은 대개 경기도 물류센터·지방 쇼핑몰이라 배송 구역에서 멀다). 체크를 꺼 두고 사진을 보고 고르게 한다. */
+function scanFarCheck(x){
+  x.warn='';
+  if(x.same){ x.warn='보내는 분 주소를 읽은 것 같아요 — 사진을 눌러 받는 분 주소로 고쳐 주세요'; x.on=false; return; }
+  const ref=searchRef(); if(!ref) return;
+  const km=distM(ref,LL(x.lat,x.lng))/1000;
+  if(km>SCAN_FAR_KM){ x.warn='여기서 '+Math.round(km)+'km 먼 주소예요 — 보내는 분 주소인지 사진을 확인해 주세요'; x.on=false; }
 }
 /* 같은 송장을 두 번 찍었거나, 이미 꽂힌 송장·같은 집이면 체크를 꺼 둔다 */
 function scanDupCheck(x){
@@ -2275,7 +2301,7 @@ function scanDupCheck(x){
     ||(!i.done&&near(i)&&(x.detail?(i.memo||'').includes(x.detail):!i.memo)));
   if(old){ x.dup='이미 꽂혀 있어요 (#'+old.seq+')'; x.on=false; return; }
   const me=scanRows.indexOf(x);
-  const prev=scanRows.find((y,i)=>i<me&&y.st==='ok'&&((x.waybill&&y.waybill===x.waybill)||(near(y)&&(y.detail||'')===(x.detail||''))));
+  const prev=scanRows.find((y,i)=>i<me&&y.st==='ok'&&!y.warn&&((x.waybill&&y.waybill===x.waybill)||(near(y)&&(y.detail||'')===(x.detail||''))));
   if(prev){ x.dup=(x.waybill&&prev.waybill===x.waybill)?'같은 송장을 두 번 찍었어요':'위와 같은 집이에요 (상자 여러 개?)'; x.on=false; }
 }
 
@@ -2299,7 +2325,7 @@ function rvRowEl(x){
   const inp=d.querySelector('input');
   const apply=async()=>{
     const v=inp.value.trim(); if(!v||v===x.addr) return;
-    x.addr=v; x.place=''; await scanFind(x); rvRender();
+    x.addr=v; x.place=''; x.same=false; await scanFind(x); rvRender();
   };
   inp.onchange=apply;
   inp.onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); inp.blur(); } };
@@ -2322,7 +2348,7 @@ function rvRender(){
     if(x.st==='wait'){ t='⏳ 차례 기다리는 중'; c='wait'; }
     else if(x.st==='reading'){ t='🔎 송장 읽는 중…'+(x.note?' ('+x.note+')':''); c='wait'; }
     else if(x.st==='find'){ t='🗺 지도에서 찾는 중…'; c='wait'; }
-    else if(x.st==='ok'){ t=x.dup?'⚠️ '+x.dup:'✅ '+(shortAddr(x.name)||x.name); c=x.dup?'warn':'ok'; }
+    else if(x.st==='ok'){ const w=x.dup||x.warn; t=w?'⚠️ '+w:'✅ '+(shortAddr(x.name)||x.name); c=w?'warn':'ok'; }
     else if(x.st==='nf'){ t='⚠️ 지도에서 못 찾았어요 — 주소를 고쳐 주세요'; c='warn'; }
     else if(x.st==='unread'){ t='⚠️ 주소를 못 읽었어요 — 사진을 눌러 보고 직접 입력'; c='warn'; }
     else { t='❌ '+(x.note||'읽기 실패'); c='err'; }
@@ -2337,6 +2363,7 @@ function rvRender(){
     if(x.place) bits.push('🏢 '+x.place);
     if(x.detail) bits.push('🚪 '+x.detail);
     if(x.waybill) bits.push('운송장 …'+x.waybill.slice(-4));
+    if(x.from&&(x.warn||x.st==='nf')) bits.push('📦 보낸 곳: '+x.from);     // 헷갈렸을 때만 견줘 볼 수 있게
     d.querySelector('.dt').textContent=bits.join('  ·  ');
   });
   const photos=new Set(scanRows.map(x=>x.photo.id)).size;
