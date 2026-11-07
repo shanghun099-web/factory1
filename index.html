@@ -238,6 +238,8 @@ input,textarea{font-family:inherit}
 #detail .body{padding:6px 18px 18px}
 #detail .addr{font-size:17px;font-weight:700;line-height:1.45;margin-bottom:4px;user-select:text;-webkit-user-select:text}
 #detail .meta{font-size:12px;color:var(--dim);margin-bottom:12px}
+#dDong{width:100%;height:44px;margin-bottom:10px;flex:none;font-size:14px;color:var(--blue)}
+#dDong[hidden]{display:none}
 #detail textarea{
   width:100%;background:var(--bg);border:1px solid var(--line);border-radius:10px;
   color:var(--text);font-size:14px;padding:10px 12px;resize:none;height:64px;margin-bottom:12px;
@@ -524,6 +526,7 @@ input,textarea{font-family:inherit}
   <div class="body">
     <div class="addr" id="dAddr"></div>
     <div class="meta" id="dMeta"></div>
+    <button class="act" id="dDong" hidden>📍 이 동 위치 바로잡기 (지도에서 콕)</button>
     <textarea id="dMemo" placeholder="메모 (동·호수, 공동현관 코드, 문앞 등)"></textarea>
     <div class="row">
       <button class="act primary" id="dDone">✓ 배송완료</button>
@@ -1106,6 +1109,8 @@ function openDetail(id){
   $('dMeta').textContent=(it.spoken===SCAN_SRC?'📷 송장 사진 · ':(it.spoken&&it.spoken!==it.addr?'인식: "'+it.spoken+'" · ':''))
     +(it.waybill?'운송장 …'+it.waybill.slice(-4)+' · ':'')+new Date(it.ts).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'})+' 등록';
   $('dMemo').value=it.memo||'';
+  $('dDong').hidden=!it.dkey;
+  if(it.dkey) $('dMeta').textContent+=' · '+(DONG_SRC_TXT[it.dongSrc]||'');
   syncDoneBtn(it);
   goToPin(it.lat,it.lng);
 }
@@ -1266,7 +1271,7 @@ let pickMode=false;   // false | 'deli'(배송지 추가) | 'know'(노하우 핀
 function setPickMode(on){
   pickMode=on===true?'deli':on;
   $('btnPick').classList.toggle('on',pickMode==='deli'); $('kPick').classList.toggle('on',pickMode==='know');
-  $('pickHint').textContent=pickMode==='know'?'📌 노하우 핀 자리를 콕 찍으세요 (한 번 더 누르면 취소)':'📌 지도에서 배송지를 콕 찍으세요 (한 번 더 누르면 취소)';
+  $('pickHint').textContent=pickMode==='dong'?'📍 이 동 건물을 지도에서 콕 찍으세요 (다음부터 이 자리에 꽂혀요)':pickMode==='know'?'📌 노하우 핀 자리를 콕 찍으세요 (한 번 더 누르면 취소)':'📌 지도에서 배송지를 콕 찍으세요 (한 번 더 누르면 취소)';
   $('pickHint').classList.toggle('show',!!pickMode);
   if(pickMode&&navigator.vibrate)navigator.vibrate(15);
 }
@@ -1276,6 +1281,7 @@ function pickAt(ll){
   setPickMode(false);
   const lat=ll.lat(), lng=ll.lng();
   if(mode==='know'){ newKnow(lat,lng,'콕'); return; }
+  if(mode==='dong'){ fixDong(lat,lng); return; }
   const fallback=()=>commit('콕 찍음', '지도에서 찍은 위치 ('+lat.toFixed(5)+', '+lng.toFixed(5)+')', lat, lng);
   if(!geocoder){ fallback(); return; }
   geocoder.coord2Address(lng, lat, (r,st)=>{
@@ -2281,8 +2287,74 @@ async function scanFind(x){
   x.st='find'; x.dup=''; rvRender();
   let f=x.addr?await resolveAddress(x.addr):null;
   if(!f&&x.place) f=await resolveAddress(x.place);
-  if(f){ x.lat=f.lat; x.lng=f.lng; x.name=f.name; x.st='ok'; x.on=true; scanFarCheck(x); if(!x.warn) scanDupCheck(x); }   // 보내는 분 의심이 먼저, 그다음 중복
+  if(f){ x.lat=f.lat; x.lng=f.lng; x.name=f.name; await findDong(x); x.st='ok'; x.on=true; scanFarCheck(x); if(!x.warn) scanDupCheck(x); }   // 보내는 분 의심이 먼저, 그다음 중복
   else{ x.st=(x.addr||x.place)?'nf':'unread'; x.on=false; }
+}
+/* ── 아파트 동별 위치 ──
+   카카오 주소 검색은 아파트 단지 전체를 한 좌표(단지 대표 위치)로 준다 → 101동·102동… 이 한 점에 겹친다 (2026-11 사용자 신고).
+   그래서 동 번호가 있으면 ① 전에 [📍 이 동 위치 바로잡기]로 고쳐 둔 위치(이 폰에 기억) → ② 카카오 장소 검색에
+   '○○아파트 101동' 같은 동 장소가 있으면 그 위치 → ③ 둘 다 없으면 단지 위치 둘레에 조금씩 비켜 꽂아 핀이 따로 보이게 한다.
+   ③은 대략이라 상세 카드에서 한 번 바로잡으면 그 동은 다음부터 ①로 정확히 꽂힌다. */
+const LS_DONG='malpin.dongpos';
+let dongPos={}; try{ dongPos=JSON.parse(localStorage.getItem(LS_DONG)||'{}')||{}; }catch(e){ dongPos={}; }
+const DONG_SRC_TXT={saved:'📍 기억해 둔 동 위치', kakao:'📍 카카오 동 위치', approx:'📍 동 위치 대략 (단지 안)'};
+const dongNum=d=>{ const m=String(d||'').match(/(?:^|[^0-9])(\d{1,4})\s*동/); return m?m[1]:''; };
+/* 단지 주소 + 동 번호 → 기억 열쇠. 상호 검색 결과("상록아파트 (서울 … 12)")면 괄호 안 주소만 */
+function dongKey(base,n){
+  const m=String(base||'').match(/\((.+)\)\s*$/);
+  return String(m?m[1]:base||'').replace(/\s+/g,'').replace(/^(서울특별시|서울시|서울)/,'')+'|'+n;
+}
+function kwSearch(q,opt){ return new Promise(res=>{ if(!places) return res([]); try{ places.keywordSearch(q,(r,s)=>res(s===kakao.maps.services.Status.OK?r:[]),opt); }catch(e){ res([]); } }); }
+function bldName(lat,lng){ return new Promise(res=>{ if(!geocoder) return res(''); try{ geocoder.coord2Address(lng,lat,(r,s)=>{ const rd=s===kakao.maps.services.Status.OK&&r&&r[0]&&r[0].road_address; res((rd&&rd.building_name)||''); }); }catch(e){ res(''); } }); }
+async function findDong(x){
+  x.dong=dongNum(x.detail); x.dkey=''; x.dongSrc='';
+  if(!x.dong) return;
+  x.dkey=dongKey(x.name,x.dong);
+  const saved=dongPos[x.dkey];
+  if(saved){ x.lat=saved.lat; x.lng=saved.lng; x.dongSrc='saved'; return; }
+  const names=[...new Set([x.place, await bldName(x.lat,x.lng)].filter(Boolean))];
+  if(!x.place&&names[0]) x.place=names[0];
+  const re=new RegExp('(^|[^0-9])'+x.dong+'\\s*동');
+  const ref=window.naver?LL(x.lat,x.lng):null;
+  for(const nm of names){
+    const r=await kwSearch(nm+' '+x.dong+'동',{location:new kakao.maps.LatLng(x.lat,x.lng),radius:1500});
+    /* 이름에 정확히 '101동'이 들어 있고(1101동 제외) 단지에서 700m 안인 것만 — 다른 동네 같은 이름 단지 거르기 */
+    const hit=r.find(p=>re.test(p.place_name)&&(!ref||distM(ref,LL(parseFloat(p.y),parseFloat(p.x)))<700));
+    if(hit){ x.lat=parseFloat(hit.y); x.lng=parseFloat(hit.x); x.dongSrc='kakao'; return; }
+  }
+  x.dongSrc='approx';
+}
+/* 꽂을 자리에 이미 핀이 있으면(같은 단지 대략 위치 등) 둘레로 조금씩 비켜서 따로 보이게 */
+function spreadPos(lat,lng,taken){
+  const hit=(a,b)=>taken.some(t=>Math.abs(t.lat-a)<0.00004&&Math.abs(t.lng-b)<0.00005);   // 약 4m 안
+  if(!hit(lat,lng)) return {lat,lng};
+  for(let k=1;k<60;k++){
+    const r=14+5*Math.floor((k-1)/6), a=k*2.399963;            // 해바라기 배치 — 겹치지 않게 고르게
+    const la=lat+r*Math.cos(a)/111320, ln=lng+r*Math.sin(a)/(111320*Math.cos(lat*Math.PI/180));
+    if(!hit(la,ln)) return {lat:la,lng:ln};
+  }
+  return {lat,lng};
+}
+/* 상세 카드 [📍 이 동 위치 바로잡기] → 지도에서 콕 → 그 동 위치를 기억하고, 같은 동 핀(안 끝난 것)을 모두 옮긴다 */
+let dongFixId=null;
+$('dDong').onclick=()=>{
+  const id=selectedId; if(!id) return;
+  closeSheets(); setPickMode('dong'); dongFixId=id;
+};
+function fixDong(lat,lng){
+  const it=items.find(i=>i.id===dongFixId); dongFixId=null;
+  if(!it||!it.dkey) return;
+  dongPos[it.dkey]={lat,lng,ts:Date.now()};
+  try{ localStorage.setItem(LS_DONG,JSON.stringify(dongPos)); }catch(e){}
+  const moved=[];
+  items.filter(i=>i.dkey===it.dkey&&(i===it||!i.done)).forEach(i=>{
+    const p=spreadPos(lat,lng,moved);          // 같은 동 다른 호수가 여럿이면 바로 옆에 나란히
+    i.lat=p.lat; i.lng=p.lng; i.dongSrc='saved'; moved.push(p);
+    const o=overlays[i.id]; if(o) o.ov.setPosition(LL(p.lat,p.lng));
+  });
+  save(); updateCounts();
+  toast('📍 '+(it.dkey.split('|')[1])+'동 위치를 기억했어요 — 다음부터 이 자리에 꽂혀요','ok');
+  if(navigator.vibrate) navigator.vibrate(30);
 }
 /* 보내는 분 주소를 잘못 읽은 것 걸러내기 — ① AI 가 읽은 보내는 분 주소와 같거나 ② 지금 있는 곳에서 너무 먼 주소
    (보내는 곳은 대개 경기도 물류센터·지방 쇼핑몰이라 배송 구역에서 멀다). 체크를 꺼 두고 사진을 보고 고르게 한다. */
@@ -2348,7 +2420,7 @@ function rvRender(){
     if(x.st==='wait'){ t='⏳ 차례 기다리는 중'; c='wait'; }
     else if(x.st==='reading'){ t='🔎 송장 읽는 중…'+(x.note?' ('+x.note+')':''); c='wait'; }
     else if(x.st==='find'){ t='🗺 지도에서 찾는 중…'; c='wait'; }
-    else if(x.st==='ok'){ const w=x.dup||x.warn; t=w?'⚠️ '+w:'✅ '+(shortAddr(x.name)||x.name); c=w?'warn':'ok'; }
+    else if(x.st==='ok'){ const w=x.dup||x.warn; t=w?'⚠️ '+w:'✅ '+(x.dong?(x.place||'아파트')+' '+x.dong+'동':(shortAddr(x.name)||x.name)); c=w?'warn':'ok'; }
     else if(x.st==='nf'){ t='⚠️ 지도에서 못 찾았어요 — 주소를 고쳐 주세요'; c='warn'; }
     else if(x.st==='unread'){ t='⚠️ 주소를 못 읽었어요 — 사진을 눌러 보고 직접 입력'; c='warn'; }
     else { t='❌ '+(x.note||'읽기 실패'); c='err'; }
@@ -2362,6 +2434,7 @@ function rvRender(){
     const bits=[];
     if(x.place) bits.push('🏢 '+x.place);
     if(x.detail) bits.push('🚪 '+x.detail);
+    if(x.st==='ok'&&x.dongSrc) bits.push(x.dongSrc==='approx'?'📍 동 위치 대략 (단지 안에 따로 꽂음)':DONG_SRC_TXT[x.dongSrc]);
     if(x.waybill) bits.push('운송장 …'+x.waybill.slice(-4));
     if(x.from&&(x.warn||x.st==='nf')) bits.push('📦 보낸 곳: '+x.from);     // 헷갈렸을 때만 견줘 볼 수 있게
     d.querySelector('.dt').textContent=bits.join('  ·  ');
@@ -2383,9 +2456,17 @@ $('rvGo').onclick=()=>{
   const pick=scanRows.filter(x=>x.st==='ok'&&x.on);
   if(!pick.length) return;
   pick.forEach(x=>{
-    const memo=[x.place&&!String(x.name).includes(x.place)?x.place:'', x.detail].filter(Boolean).join(' ');
-    const it={id:Date.now()+''+Math.random().toString(36).slice(2,6), seq:seq++, addr:x.name, spoken:SCAN_SRC,
-      memo, lat:x.lat, lng:x.lng, done:false, ts:Date.now(), waybill:x.waybill||''};
+    let addr=x.name, memo=[x.place&&!String(x.name).includes(x.place)?x.place:'', x.detail].filter(Boolean).join(' ');
+    if(x.dong){
+      /* "상록아파트 101동 (서울 강남구 …)" — 말풍선·목록에 '상록아파트 101동 · 일원로 12' 로 보인다 */
+      const m=String(x.name).match(/\((.+)\)\s*$/), base=m?m[1]:x.name;
+      addr=(x.place||'아파트')+' '+x.dong+'동 ('+base+')'; memo=x.detail;
+    }
+    /* 안 끝난 핀과 같은 자리면 비켜 꽂기 (기억·카카오 동 위치는 같은 동 다른 호수일 때만 겹친다) */
+    const pos=spreadPos(x.lat,x.lng,items.filter(i=>!i.done));
+    const it={id:Date.now()+''+Math.random().toString(36).slice(2,6), seq:seq++, addr, spoken:SCAN_SRC,
+      memo, lat:pos.lat, lng:pos.lng, done:false, ts:Date.now(), waybill:x.waybill||''};
+    if(x.dkey){ it.dkey=x.dkey; it.dongSrc=x.dongSrc; }
     items.push(it); if(map) addOverlay(it);
   });
   save();
@@ -2437,8 +2518,18 @@ async function camOpen(){
     $('scShot').click(); return;
   }
   const v=$('camVid'); v.srcObject=camStream; v.play().catch(()=>{});
+  /* 화면 영상 한 장을 떼어 내면 해상도가 낮고 초점이 덜 맞아 글자를 잘 못 읽었다(2026-11 사용자 신고) →
+     폰이 지원하면 ImageCapture 로 카메라의 '진짜 사진'(최대 해상도·자동 초점)을 찍는다 */
+  camCap=null;
+  try{
+    const tr=camStream.getVideoTracks()[0];
+    if(window.ImageCapture) camCap=new ImageCapture(tr);
+    const cp=tr.getCapabilities?tr.getCapabilities():{};
+    if(cp.focusMode&&cp.focusMode.includes('continuous')) tr.applyConstraints({advanced:[{focusMode:'continuous'}]}).catch(()=>{});
+  }catch(e){ camCap=null; }
   $('cam').classList.add('show'); camSync();
 }
+let camCap=null;
 function camStop(){
   if(camStream){ camStream.getTracks().forEach(t=>t.stop()); camStream=null; }
   $('camVid').srcObject=null; $('cam').classList.remove('show');
@@ -2472,13 +2563,21 @@ function camSync(){
 $('camShut').onclick=()=>{
   const v=$('camVid');
   if(!v.videoWidth){ toast('카메라 준비 중이에요'); return; }
-  const s=Math.min(1,SCAN_MAX/Math.max(v.videoWidth,v.videoHeight));
-  const c=document.createElement('canvas'); c.width=Math.round(v.videoWidth*s); c.height=Math.round(v.videoHeight*s);
-  c.getContext('2d').drawImage(v,0,0,c.width,c.height);
-  scanAdd(Promise.resolve(c.toDataURL('image/jpeg',.85)));
+  if(camCap){
+    /* 진짜 사진 — 실패하면(지원 안 하는 폰) 미리 떼어 둔 화면 영상으로 대신하고, 다음부터는 화면 영상으로 */
+    const frame=grabFrame();
+    scanAdd(camCap.takePhoto().then(b=>shrinkPhoto(b)).catch(()=>{ camCap=null; return frame; }));
+  }else scanAdd(Promise.resolve(grabFrame()));
   const fl=$('camFlash'); fl.classList.add('on'); requestAnimationFrame(()=>requestAnimationFrame(()=>fl.classList.remove('on')));
   if(navigator.vibrate) navigator.vibrate(25);
 };
+function grabFrame(){
+  const v=$('camVid');
+  const s=Math.min(1,SCAN_MAX/Math.max(v.videoWidth,v.videoHeight));
+  const c=document.createElement('canvas'); c.width=Math.round(v.videoWidth*s); c.height=Math.round(v.videoHeight*s);
+  c.getContext('2d').drawImage(v,0,0,c.width,c.height);
+  return c.toDataURL('image/jpeg',.9);
+}
 $('camGal').onclick=()=>$('scFile').click();
 $('camDone').onclick=()=>{ camStop(); rvOpen(); };
 $('camClose').onclick=()=>{ camStop(); if(scanRows.length) rvOpen(); };   // 찍은 게 있으면 버리지 않고 확인 목록으로
