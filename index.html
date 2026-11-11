@@ -2111,18 +2111,21 @@ function gemKey(){ try{ return localStorage.getItem('malpin.gemini')||localStora
    그래서 ① Flash 모델을 새것부터 여러 개 줄 세워 두고 ② 요청마다 시간 제한을 걸어 ③ 붐비거나(503) 늦은 모델은 한동안 쉬게 하고
    바로 다음 모델로 넘어간다. 한 번 잘 된 모델(good)을 기억해, 쉬던 모델을 다시 떠볼 때도 안 되면 곧장 그 모델로 간다. */
 const LS_GM='malpin.gmodel';      // {list:[새것부터 Flash], ts:목록 확인한 때, bad:[못 쓰는 모델], lite:[기본 설정만 되는 모델], busy:{모델:{until,n}}, good:마지막으로 잘 된 모델}
-const GM_BUSY_MS=30*60000;        // 붐빈 모델을 쉬게 하는 시간 — 거듭 실패하면 30분 → 1시간 → 2시간 … (최대 8시간)
+const GM_BUSY_MS=30*60000;        // 답이 없는(멈춘) 모델을 쉬게 하는 시간 — 거듭되면 30분 → 1시간 → 2시간 … (최대 8시간)
+const GM_5XX_MIN=[1,5,30,60,120];  // '붐빔(503)'을 바로 돌려준 모델을 쉬게 하는 분 — 잠깐 붐빈 것일 수 있어 처음엔 1분만 (실제로 잘 되던 모델도 가끔 503 을 준다)
 let GEM_TIMEOUT=15000;            // 한 번 읽기를 기다리는 시간(ms). 보통 2~5초면 온다. 다시 읽기(깊이 생각)는 그 3배
 let scanModelUsed='';
 function gmCache(){ try{ return JSON.parse(localStorage.getItem(LS_GM)||'{}')||{}; }catch(e){ return {}; } }
 function gmSave(c){ try{ localStorage.setItem(LS_GM,JSON.stringify(c)); }catch(e){} }
 function gmBad(model){ const c=gmCache(); c.bad=[...new Set((c.bad||[]).concat(model))]; c.list=(c.list||[]).filter(m=>m!==model); if(c.good===model) c.good=''; gmSave(c); }
-/* 붐비는 모델 쉬게 하기. soft=true 는 '잠깐만'(1분 한도 같은 것) — 실패 횟수는 늘리지 않는다 */
-function gmMarkBusy(model,ms,soft){
+/* 붐비는 모델 쉬게 하기. soft=true 는 '잠깐만'(1분 한도 같은 것) — 실패 횟수는 늘리지 않는다.
+   quick=true 는 503 을 바로 돌려준 경우(기다린 시간이 짧다) — 멈춰서 시간 제한까지 간 경우보다 짧게 쉰다 */
+function gmMarkBusy(model,ms,soft,quick){
   const c=gmCache(); c.busy=c.busy||{};
   const b=c.busy[model]||{n:0};
   if(!soft) b.n=Math.min((b.n||0)+1,5);
-  b.until=Date.now()+(ms||GM_BUSY_MS*Math.pow(2,Math.max(0,b.n-1)));
+  const k=Math.max(0,(b.n||1)-1);
+  b.until=Date.now()+(ms||(quick?GM_5XX_MIN[k]*60000:GM_BUSY_MS*Math.pow(2,k)));
   c.busy[model]=b; gmSave(c);
 }
 function gmMarkGood(model){ const c=gmCache(); if(c.busy&&c.busy[model]) delete c.busy[model]; c.good=model; gmSave(c); }
@@ -2362,7 +2365,7 @@ async function gemAsk(b64,prompt,onWait,deep){
           const sec=Math.min(60, m?Math.ceil(parseFloat(m[1]))+1 : 15);
           gmMarkBusy(model,sec*1000,true); waitSec=waitSec?Math.min(waitSec,sec):sec; lastErr='무료 한도에 걸렸어요'; break;   // 1분 한도 → 그동안 다른 모델로
         }
-        if(res.status>=500){ gmMarkBusy(model); lastErr='Gemini 가 붐벼요'; break; }                 // 붐비는 모델 → 쉬게 하고 다음 모델
+        if(res.status>=500){ gmMarkBusy(model,0,false,true); lastErr='Gemini 가 붐벼요'; break; }    // 붐비는 모델 → 잠깐 쉬게 하고 다음 모델
         if(res.status===404||(res.status===400&&/not found|is not supported|unsupported model/i.test(raw))){ gmBad(model); break; }
         if(res.status===400&&!lite){ lite=true; continue; }           // 이 모델이 설정(해상도·생각)을 못 알아들음 → 기본 설정으로 다시
         lastErr='읽기 오류 ('+res.status+')'; break;
