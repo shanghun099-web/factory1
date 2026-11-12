@@ -2275,6 +2275,12 @@ const SCAN_FAR_KM=15;      // 배달 구역 기준점에서 이보다 먼 주소
 
 let scanRows=[];      // 확인 목록 한 줄 = 송장 하나. 사진을 읽기 전엔 사진당 한 줄(st:'wait')로 자리만 잡는다
 let scanBusy=false;
+/* 읽는 시간 재기 (2026-11-13 사용자 요청: 읽는 중에 시간이 흐르는 게 보이면 얼마나 걸릴지 짐작이 된다)
+   scanSpent = 이 확인 목록에서 지금까지 읽는 데 쓴 시간(ms, 사진을 더 넣으면 이어서 셈), scanRunT0 = 지금 읽기 차례가 시작된 때 */
+let scanSpent=0, scanRunT0=0, scanTimer=null;
+const scanElapsed=()=>scanSpent+(scanRunT0?Date.now()-scanRunT0:0);
+const fmtClock=ms=>{ const s=Math.max(0,Math.floor(ms/1000)); return Math.floor(s/60)+':'+String(s%60).padStart(2,'0'); };          // 0:07, 1:23
+const fmtSecs=ms=>{ const s=Math.max(0,Math.round(ms/1000)); return s<60?s+'초':Math.floor(s/60)+'분'+(s%60?' '+(s%60)+'초':''); };   // 42초, 1분 12초
 /* st: wait(차례 기다림) · reading(읽는 중) · find(지도 검색 중) · ok(찾음) · nf(주소는 읽었는데 지도에서 못 찾음)
        · unread(주소를 못 읽음) · err(오류) */
 
@@ -2313,10 +2319,11 @@ function scanAdd(p,src){
 /* 읽기 차례 — 한 장씩 (무료 한도 때문에 한꺼번에 보내지 않는다). AI 읽기와 바코드 읽기는 동시에 */
 async function scanPump(){
   if(scanBusy) return; scanBusy=true;
+  scanRunT0=Date.now(); clearInterval(scanTimer); scanTimer=setInterval(rvRender,1000);   // 1초마다 화면의 시간을 새로 그린다
   try{
     let r;
     while((r=scanRows.find(x=>x.st==='wait'))){
-      r.st='reading'; r.note=''; rvRender();
+      r.st='reading'; r.note=''; r.t0=Date.now(); rvRender();
       const bcP=readBarcodes(r.photo);
       let labels;
       try{ labels=await gemRead(r.photo, msg=>{ r.note=msg; rvRender(); }); }
@@ -2342,7 +2349,11 @@ async function scanPump(){
         if(!x.photo.gone&&await needReread(x)){ await scanReread(x); rvRender(); }
       }
     }
-  }finally{ scanBusy=false; rvRender(); }
+  }finally{
+    clearInterval(scanTimer); scanTimer=null;
+    if(scanRunT0){ scanSpent+=Date.now()-scanRunT0; scanRunT0=0; }
+    scanBusy=false; rvRender();
+  }
 }
 async function gemRead(photo,onWait){ return gemAsk(await photo.data, scanPrompt(await scanArea()), onWait, false); }
 /* Gemini 에 사진 한 장(b64) 보내기 → [{addr,place,detail,waybill,from,same,to_text,big,sure,box}]
@@ -2625,7 +2636,7 @@ async function scanReread(x){
   const say=cropped?'송장만 크게 잘라 다시 읽는 중':'꼼꼼히 다시 읽는 중';
   const keep=['addr','place','detail','to_text','from','big','sure','same','waybill','lat','lng','name','st','on','warn','far','farKm','dup','dong','dkey','dongSrc','byName','doubt'];
   const old={}; keep.forEach(k=>old[k]=x[k]);
-  x.st='reading'; x.note=say; rvRender();
+  x.st='reading'; x.note=say; x.t0=Date.now(); rvRender();
   let ls=[];
   try{ ls=await gemAsk(b64, scanPrompt(await scanArea(),hint), m=>{ x.note=m||say; rvRender(); }, true); }
   catch(e){ if(e.fatal) toast(e.message,'err'); }
@@ -2737,6 +2748,7 @@ function rvHide(){ $('review').classList.remove('show'); }
 function scanReset(){
   scanRows.forEach(x=>x.photo.gone=true);
   scanRows=[]; Object.keys(rvEls).forEach(k=>{ rvEls[k].remove(); delete rvEls[k]; });
+  scanSpent=0; if(scanRunT0) scanRunT0=Date.now();          // 목록을 비우면 시간도 처음부터
   rvRender();
 }
 function rvRowEl(x){
@@ -2771,7 +2783,7 @@ function rvRender(){
     const st=d.querySelector('.st'), inp=d.querySelector('input'), chk=d.querySelector('.chk');
     let t='',c='';
     if(x.st==='wait'){ t='⏳ 차례 기다리는 중'; c='wait'; }
-    else if(x.st==='reading'){ t='🔎 송장 읽는 중…'+(x.note?' ('+x.note+')':''); c='wait'; }
+    else if(x.st==='reading'){ t='🔎 송장 읽는 중… '+(x.t0?Math.max(0,Math.floor((Date.now()-x.t0)/1000))+'초':'')+(x.note?' ('+x.note+')':''); c='wait'; }
     else if(x.st==='find'){ t='🗺 지도에서 찾는 중…'; c='wait'; }
     else if(x.st==='ok'){ const w=x.dup||x.warn; t=w?'⚠️ '+w:'✅ '+(x.dong?(x.place||shortAddr(x.name))+' '+x.dong+'동':(shortAddr(x.name)||x.name)); c=w?'warn':'ok'; }
     else if(x.st==='nf'){ t='⚠️ 지도에서 못 찾았어요 — 주소를 고쳐 주세요'; c='warn'; }
@@ -2799,10 +2811,20 @@ function rvRender(){
   const photos=new Set(scanRows.map(x=>x.photo.id)).size;
   const busy=scanRows.filter(x=>['wait','reading','find'].includes(x.st)).length;
   const pick=scanRows.filter(x=>x.st==='ok'&&x.on).length;
-  $('rvSub').textContent=n?('사진 '+photos+'장'+(busy?' · 읽는 중 '+(n-busy)+'/'+n:' · 송장 '+n+'개')+(scanModelUsed?' · '+scanModelUsed.replace(/^gemini-/,'G'):'')):'';
+  /* 남은 시간 어림: 다 읽은 사진 한 장당 평균 × 아직 안 끝난 사진 수 − 지금 읽는 사진에 이미 쓴 시간 (5초 단위로) */
+  let left='';
+  if(busy){
+    const busyPh=new Set(scanRows.filter(x=>['wait','reading','find'].includes(x.st)).map(x=>x.photo.id)).size, donePh=photos-busyPh;
+    const cur=scanRows.find(x=>x.st==='reading'&&x.t0);
+    if(donePh>0){
+      const ms=Math.max(0,scanElapsed()/donePh*busyPh-(cur?Math.min(Date.now()-cur.t0,scanElapsed()/donePh):0));
+      left=' · 약 '+fmtSecs(Math.max(5000,Math.ceil(ms/5000)*5000))+' 남음';
+    }else left=' · 남은 시간 재는 중';
+  }
+  $('rvSub').textContent=n?('사진 '+photos+'장'+(busy?left:' · 송장 '+n+'개'+(scanElapsed()>=1000?' · ⏱ '+fmtSecs(scanElapsed())+' 걸림':'')+(scanModelUsed?' · '+scanModelUsed.replace(/^gemini-/,'G'):''))):'';
   const go=$('rvGo');
   go.disabled=!!busy||!pick;
-  go.textContent=busy?'🔎 읽는 중… ('+(n-busy)+'/'+n+')':(pick?'📍 '+pick+'곳 꽂기':'📍 꽂을 곳을 골라 주세요');
+  go.textContent=busy?'🔎 읽는 중 '+(n-busy)+'/'+n+' · ⏱ '+fmtClock(scanElapsed()):(pick?'📍 '+pick+'곳 꽂기':'📍 꽂을 곳을 골라 주세요');
 }
 $('rvBig').onclick=()=>$('rvBig').classList.remove('show');
 $('rvCancel').onclick=()=>{
