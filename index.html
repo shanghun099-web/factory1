@@ -219,7 +219,8 @@ input,textarea{font-family:inherit}
   border:6px solid transparent;border-top-color:var(--blue);border-bottom:0;
 }
 .pin.lbl-on .lbl{display:block}
-
+/* 말풍선 안 운송장 끝 4자리 — 상자에서 바로 찾을 수 있게 크게, 눈에 띄는 색으로 */
+.pin .lbl .wb{margin-left:8px;font-size:18px;font-weight:900;color:var(--amber);font-variant-numeric:tabular-nums;letter-spacing:.03em;vertical-align:-1.5px}
 /* ── 시트 공통 ── */
 .sheet{
   position:fixed;left:0;right:0;bottom:0;z-index:40;
@@ -797,12 +798,32 @@ function shortAddr(a){
   const core=m1?m1[1]:(m2?m2[1]:a);
   return name?(name+' · '+core):core;
 }
+/* 핀 말풍선에 넣을 글자 [주소 쪽, 운송장 끝 4자리] (2026-11-12 사용자 요청)
+   - 아파트(메모에 동·호수가 있음): "804동1002호" 만 — 단지 이름·도로명은 뺀다
+   - 송장 사진으로 꽂은 그 밖의 주소: 가장 짧게 "일원로 12" (건물 이름도 뺀다)
+   - 말로·손으로 넣은 핀: 예전 그대로 (상호 검색이면 "스타벅스 · 일원로 12")
+   운송장 번호가 있으면 끝 4자리를 뒤에 크게·색 넣어 붙인다 */
+function pinLabelParts(it){
+  const memo=String(it.memo||''), addr=String(it.addr||'');
+  const dh=memo.match(/(\d{1,4})\s*동\s*(\d{1,5})\s*호/), d=memo.match(/(\d{1,4})\s*동/);
+  let t;
+  if(dh) t=dh[1]+'동'+dh[2]+'호';
+  else if(it.dkey) t=(d?d[1]:String(it.dkey).split('|')[1])+'동';
+  else if(it.spoken===SCAN_SRC){ const m=addr.match(/\((.+)\)\s*$/); t=shortAddr(m?m[1]:addr); }
+  else t=shortAddr(addr);
+  return [t, it.waybill?String(it.waybill).slice(-4):''];
+}
+function setPinLabel(lbl,it){
+  const [t,wb]=pinLabelParts(it);
+  lbl.textContent=t;
+  if(wb){ const e=document.createElement('span'); e.className='wb'; e.textContent=wb; lbl.appendChild(e); }
+}
 function addOverlay(it){
   const el=document.createElement('div');
   el.className='pin'+(it.done?' done':'');
   /* 말풍선형: 중심(13,13) 반지름 11 의 원이 그대로 보이고, 아래쪽에서 짧은 꼬리가 갈라져 (13,39)로 뾰족하게 */
   el.innerHTML='<svg viewBox="0 0 26 40" aria-hidden="true"><path d="M5.64 21.17A11 11 0 1 1 20.36 21.17L13 39Z"/></svg><b>'+it.seq+'</b>';
-  const lbl=document.createElement('div'); lbl.className='lbl'; lbl.textContent=shortAddr(it.addr); el.appendChild(lbl);
+  const lbl=document.createElement('div'); lbl.className='lbl'; setPinLabel(lbl,it); el.appendChild(lbl);
   el.onclick=e=>{e.stopPropagation();focusItem(it.id,true)};   /* 핀 탭 = 목록 줄 탭과 동일 (카드는 번호 배지에서) */
   /* HTML 마커 — 핀 뾰족한 끝(13,40)이 좌표에 닿도록 anchor 지정 */
   const ov=new naver.maps.Marker({
@@ -1074,6 +1095,7 @@ $('dDone').onclick=()=>{
 $('dMemo').onchange=()=>{
   const it=items.find(i=>i.id===selectedId); if(!it)return;
   it.memo=$('dMemo').value.trim(); save();
+  const o=overlays[it.id], l=o&&o.el.querySelector('.lbl'); if(l) setPinLabel(l,it);   // 메모의 동·호수를 고치면 말풍선도 바로
 };
 /* ── 길찾기 ──
    순서: 카카오내비 앱(음성 길안내) → 안 열리면 카카오맵 앱 → 그것도 없으면 카카오맵 웹.
